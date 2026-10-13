@@ -706,8 +706,9 @@ function ChatInner() {
                       </div>
 
                       <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
-                        {m.content}
+                        {renderMessageContent(m.content, isSentByMe)}
                       </p>
+
 
                       <div className="flex items-center justify-end gap-1.5 mt-1 text-[9px] sm:text-[10px] text-slate-300/80 font-mono">
                         <span>{formatTime(m.timestamp)}</span>
