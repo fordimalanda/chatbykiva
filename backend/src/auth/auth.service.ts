@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException, Logger } from '@nestjs/common';
 import { KivaService } from '../kiva/kiva.service';
 import { RegisterDto, LoginDto } from './auth.dto';
 import * as bcrypt from 'bcryptjs';
@@ -26,8 +26,22 @@ export interface UserDocument {
   createdAt: number;
 }
 
+/**
+ * Session stockée dans KivaDB sous la clé : session:<token>
+ */
+export interface SessionDocument {
+  token: string;
+  username: string;
+  createdAt: number;
+  expiresAt: number; // timestamp ms, TTL 30 jours
+}
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  /** TTL session : 30 jours en millisecondes */
+  private readonly SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+
   constructor(private readonly kivaService: KivaService) {}
 
   async register(dto: RegisterDto): Promise<{ token: string; user: SafeUser }> {
@@ -65,6 +79,9 @@ export class AuthService {
     }
 
     const token = this.generateToken(username);
+    // Persister la session dans KivaDB sous session:<token>
+    await this.saveSessionToKiva(token, username);
+    this.logger.log(`Compte créé + session KivaDB enregistrée : user:${username}`);
     return {
       token,
       user: this.toSafeUser(userDoc),
@@ -89,10 +106,58 @@ export class AuthService {
     }
 
     const token = this.generateToken(username);
+    // Persister la session dans KivaDB sous session:<token>
+    await this.saveSessionToKiva(token, username);
+    this.logger.log(`Connexion réussie — session KivaDB : session:${token.substring(0, 12)}...`);
     return {
       token,
       user: this.toSafeUser(userDoc),
     };
+  }
+
+  /**
+   * Déconnexion : supprime la session de KivaDB
+   */
+  async logout(token: string): Promise<{ success: boolean }> {
+    if (!token) return { success: false };
+    try {
+      await this.kivaService.delete(`session:${token}`);
+      this.logger.log(`Session supprimée de KivaDB : session:${token.substring(0, 12)}...`);
+      return { success: true };
+    } catch {
+      return { success: false };
+    }
+  }
+
+  /**
+   * Valider un token via la session KivaDB (en plus de la validation base64)
+   */
+  async validateSession(token: string): Promise<string | null> {
+    if (!token) return null;
+    try {
+      const session = await this.kivaService.get<SessionDocument>(`session:${token}`);
+      if (!session) return null;
+      if (Date.now() > session.expiresAt) {
+        // Session expirée → nettoyage automatique
+        await this.kivaService.delete(`session:${token}`);
+
+        return null;
+      }
+      return session.username;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Enregistrer une session dans KivaDB */
+  private async saveSessionToKiva(token: string, username: string): Promise<void> {
+    const sessionDoc: SessionDocument = {
+      token,
+      username,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + this.SESSION_TTL_MS,
+    };
+    await this.kivaService.set(`session:${token}`, sessionDoc);
   }
 
   generateToken(username: string): string {

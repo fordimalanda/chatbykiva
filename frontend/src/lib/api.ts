@@ -104,9 +104,21 @@ class ApiService {
     });
     const json = await res.json();
     if (!res.ok) {
-      throw new Error(json.message || "Identifiant ou mot de passe incorrect");
+      throw new Error(json.message || 'Identifiant ou mot de passe incorrect');
     }
     return json;
+  }
+
+  async logoutSession(): Promise<void> {
+    // Appelle POST /auth/logout pour supprimer la session de KivaDB
+    try {
+      await fetch(`${getBackendUrl()}/auth/logout`, {
+        method: 'POST',
+        headers: this.getHeaders(),
+      });
+    } catch {
+      // Silencieux : la déconnexion locale se fait de toute façon
+    }
   }
 
   async getUsers(): Promise<UserSummaryItem[]> {

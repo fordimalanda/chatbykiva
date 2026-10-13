@@ -83,6 +83,33 @@ function ChatInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  /**
+   * Transforme le texte brut en JSX :
+   * les @mentions deviennent des liens colorés et cliquables vers le profil.
+   */
+  const renderMessageContent = (content: string, isSentByMe: boolean) => {
+    const parts = content.split(/(@[a-zA-Z0-9_-]+)/g);
+    return parts.map((part, i) => {
+      if (/^@[a-zA-Z0-9_-]+$/.test(part)) {
+        const username = part.slice(1);
+        return (
+          <Link
+            key={i}
+            href={`/profile/${username}`}
+            className={`inline-flex items-center gap-0.5 font-bold rounded px-0.5 transition-all hover:underline ${
+              isSentByMe
+                ? "text-indigo-100 bg-white/10 hover:bg-white/20"
+                : "text-amber-300 bg-amber-500/15 hover:bg-amber-500/25"
+            }`}
+          >
+            {part}
+          </Link>
+        );
+      }
+      return <span key={i}>{part}</span>;
+    });
+  };
+
   // Load channels, users, and conversations on mount
   useEffect(() => {
     if (!user) return;

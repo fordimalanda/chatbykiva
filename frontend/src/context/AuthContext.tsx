@@ -19,7 +19,8 @@ interface AuthContextType {
   loading: boolean;
   login: (data: { username: string; password: string }) => Promise<void>;
   register: (data: { username: string; password: string; displayName?: string; bio?: string }) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
+
   refreshUser: () => Promise<void>;
 }
 
@@ -65,13 +66,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/feed");
   };
 
-  const logout = () => {
+  const logout = async () => {
+    // Supprimer la session dans KivaDB (côté backend)
+    await api.logoutSession();
+    // Nettoyer le stockage local
     localStorage.removeItem("kiva_token");
     localStorage.removeItem("kiva_user");
     setUser(null);
     setToken(null);
     router.push("/login");
   };
+
 
   const refreshUser = async () => {
     if (!user?.username) return;
