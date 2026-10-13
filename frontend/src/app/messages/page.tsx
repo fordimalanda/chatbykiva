@@ -10,7 +10,9 @@ import {
   ChatMessage,
   UserSummaryItem,
   ConversationSummary,
-  ChannelItem,
+  CommunityItem,
+  SalonItem,
+  SalonVisibility,
 } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -26,13 +28,11 @@ import {
   Users,
   Search,
   Hash,
-  Database,
-  Radio,
-  ExternalLink,
-  Shield,
   ArrowLeft,
   Home,
   Lock,
+  Eye,
+  EyeOff,
   Globe,
   Plus,
   Trash2,
@@ -41,6 +41,12 @@ import {
   AlertCircle,
   Bell,
   Check,
+  X,
+  UserPlus,
+  Crown,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
 } from "lucide-react";
 
 function ChatInner() {
@@ -55,25 +61,41 @@ function ChatInner() {
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [channels, setChannels] = useState<ChannelItem[]>([]);
+  const [communities, setCommunities] = useState<CommunityItem[]>([]);
+  const [selectedCommunityId, setSelectedCommunityId] = useState<string>("comm-general");
+  const [salonsMap, setSalonsMap] = useState<Record<string, SalonItem[]>>({});
   const [users, setUsers] = useState<UserSummaryItem[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [inputContent, setInputContent] = useState("");
   const [sending, setSending] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
 
-  // Create Channel Modal state
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [newChannelName, setNewChannelName] = useState("");
-  const [newChannelDesc, setNewChannelDesc] = useState("");
-  const [newChannelPrivate, setNewChannelPrivate] = useState(false);
-  const [creatingChannel, setCreatingChannel] = useState(false);
+  // Modals state: Community
+  const [createCommunityOpen, setCreateCommunityOpen] = useState(false);
+  const [newCommName, setNewCommName] = useState("");
+  const [newCommDesc, setNewCommDesc] = useState("");
+  const [newCommPrivate, setNewCommPrivate] = useState(false);
+  const [creatingComm, setCreatingComm] = useState(false);
 
-  // Edit / Channel Settings Modal state
-  const [channelSettingsOpen, setChannelSettingsOpen] = useState(false);
-  const [selectedChannel, setSelectedChannel] = useState<ChannelItem | null>(null);
+  const [communitySettingsOpen, setCommunitySettingsOpen] = useState(false);
+  const [selectedComm, setSelectedComm] = useState<CommunityItem | null>(null);
+  const [inviteUsernameInput, setInviteUsernameInput] = useState("");
 
-  // @ Mention auto-complete state
+  // Modals state: Salon
+  const [createSalonOpen, setCreateSalonOpen] = useState(false);
+  const [newSalonName, setNewSalonName] = useState("");
+  const [newSalonDesc, setNewSalonDesc] = useState("");
+  const [newSalonVisibility, setNewSalonVisibility] = useState<SalonVisibility>("public");
+  const [creatingSalon, setCreatingSalon] = useState(false);
+
+  const [salonSettingsOpen, setSalonSettingsOpen] = useState(false);
+  const [selectedSalon, setSelectedSalon] = useState<SalonItem | null>(null);
+  const [addMemberInput, setAddMemberInput] = useState("");
+
+  // Join Request Prompt for visible_private salon
+  const [requestJoinSalonPrompt, setRequestJoinSalonPrompt] = useState<SalonItem | null>(null);
+
+  // @ Mention auto-complete state (salons only!)
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStartIndex, setMentionStartIndex] = useState<number>(-1);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -84,8 +106,7 @@ function ChatInner() {
   };
 
   /**
-   * Transforme le texte brut en JSX :
-   * les @mentions deviennent des liens colorés et cliquables vers le profil.
+   * Transforme le texte en JSX avec liens colorés et cliquables vers le profil.
    */
   const renderMessageContent = (content: string, isSentByMe: boolean) => {
     const parts = content.split(/(@[a-zA-Z0-9_-]+)/g);
@@ -110,13 +131,37 @@ function ChatInner() {
     });
   };
 
-  // Load channels, users, and conversations on mount
+  // Charger les données initiales
+  const loadCommunitiesAndSalons = async () => {
+    try {
+      const commList = await api.getCommunities();
+      setCommunities(commList);
+
+      const activeComm = commList.find((c) => c.id === selectedCommunityId) || commList[0];
+      if (activeComm) {
+        setSelectedCommunityId(activeComm.id);
+        const slns = await api.getSalons(activeComm.id);
+        setSalonsMap((prev) => ({ ...prev, [activeComm.id]: slns }));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
-    api.getChannels().then(setChannels).catch(console.error);
+    loadCommunitiesAndSalons();
     api.getUsers().then(setUsers).catch(console.error);
     api.getConversations().then(setConversations).catch(console.error);
   }, [user]);
+
+  // Recharger les salons si la communauté active change
+  useEffect(() => {
+    if (!selectedCommunityId) return;
+    api.getSalons(selectedCommunityId).then((slns) => {
+      setSalonsMap((prev) => ({ ...prev, [selectedCommunityId]: slns }));
+    }).catch(console.error);
+  }, [selectedCommunityId]);
 
   // Load messages for current active target (salon or DM)
   useEffect(() => {
@@ -140,7 +185,6 @@ function ChatInner() {
       const current = (user.username || "").toLowerCase();
       const partner = (activePartner || "").toLowerCase();
 
-      // Check if message belongs to current active window
       const isCurrentChannel =
         (partner === "all" || partner === "general") &&
         (msgTo === "all" || msgTo === "general");
@@ -157,47 +201,85 @@ function ChatInner() {
         setTimeout(scrollToBottom, 50);
       }
 
-      // Update conversations preview
       api.getConversations().then(setConversations).catch(console.error);
     };
 
-    const handleChannelNew = (ch: ChannelItem) => {
-      setChannels((prev) => {
-        if (prev.some((c) => c.id === ch.id)) return prev;
-        return [...prev, ch];
-      });
+    const handleCommunityUpdate = () => {
+      loadCommunitiesAndSalons();
     };
 
-    const handleChannelUpdated = (ch: ChannelItem) => {
-      setChannels((prev) => prev.map((c) => (c.id === ch.id ? ch : c)));
-      if (selectedChannel && selectedChannel.id === ch.id) {
-        setSelectedChannel(ch);
-      }
-    };
-
-    const handleChannelDeleted = ({ id }: { id: string }) => {
-      setChannels((prev) => prev.filter((c) => c.id !== id));
-      if (activePartner === id) {
-        setActivePartner("general");
+    const handleSalonUpdate = () => {
+      if (selectedCommunityId) {
+        api.getSalons(selectedCommunityId).then((slns) => {
+          setSalonsMap((prev) => ({ ...prev, [selectedCommunityId]: slns }));
+        }).catch(console.error);
       }
     };
 
     socket.on("message:new", handleNewMessage);
     socket.on("message:direct", handleNewMessage);
-    socket.on("channel:new", handleChannelNew);
-    socket.on("channel:updated", handleChannelUpdated);
-    socket.on("channel:deleted", handleChannelDeleted);
+    socket.on("community:new", handleCommunityUpdate);
+    socket.on("community:updated", handleCommunityUpdate);
+    socket.on("community:deleted", handleCommunityUpdate);
+    socket.on("salon:new", handleSalonUpdate);
+    socket.on("salon:updated", handleSalonUpdate);
+    socket.on("salon:deleted", handleSalonUpdate);
 
     return () => {
       socket.off("message:new", handleNewMessage);
       socket.off("message:direct", handleNewMessage);
-      socket.off("channel:new", handleChannelNew);
-      socket.off("channel:updated", handleChannelUpdated);
-      socket.off("channel:deleted", handleChannelDeleted);
+      socket.off("community:new", handleCommunityUpdate);
+      socket.off("community:updated", handleCommunityUpdate);
+      socket.off("community:deleted", handleCommunityUpdate);
+      socket.off("salon:new", handleSalonUpdate);
+      socket.off("salon:updated", handleSalonUpdate);
+      socket.off("salon:deleted", handleSalonUpdate);
     };
-  }, [socket, user, activePartner, selectedChannel]);
+  }, [socket, user, activePartner, selectedCommunityId]);
 
-  // Handle message sending
+  // Current community & salon states
+  const currentComm = communities.find((c) => c.id === selectedCommunityId) || communities[0];
+  const currentSalons = currentComm ? salonsMap[currentComm.id] || [] : [];
+
+  // Active Salon if target is a salon
+  const activeSalon = currentSalons.find(
+    (s) => s.id === activePartner || (activePartner === "general" && s.id === "general")
+  );
+  const isSalon = !!activeSalon;
+  const isDirect = !isSalon;
+  const currentDirectUser = users.find((u) => u.username === activePartner);
+
+  // Permissions for active community
+  const isCommAdmin =
+    user &&
+    currentComm &&
+    (currentComm.creator.toLowerCase() === user.username.toLowerCase() ||
+      (currentComm.admins || []).map((a) => a.toLowerCase()).includes(user.username.toLowerCase()));
+
+  const isCommCreator =
+    user && currentComm && currentComm.creator.toLowerCase() === user.username.toLowerCase();
+
+  const isCommMember =
+    user &&
+    currentComm &&
+    (currentComm.members || []).map((m) => m.toLowerCase()).includes(user.username.toLowerCase());
+
+  // Permissions for active salon
+  const isSalonAdmin =
+    user &&
+    activeSalon &&
+    (isCommAdmin ||
+      activeSalon.creator.toLowerCase() === user.username.toLowerCase());
+
+  // Pending invites for current user across communities
+  const myPendingInvites = communities.filter(
+    (c) =>
+      user &&
+      Array.isArray(c.pendingInvites) &&
+      c.pendingInvites.map((u) => u.toLowerCase()).includes(user.username.toLowerCase())
+  );
+
+  // Send message
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputContent.trim() || sending || !user) return;
@@ -213,7 +295,6 @@ function ChatInner() {
         content: text,
       });
 
-      // Immediate local state append so user sees it with zero latency
       if (sent && sent.id) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === sent.id)) return prev;
@@ -230,10 +311,17 @@ function ChatInner() {
     }
   };
 
-  // Detect @ mentions while typing
+  // Handle typing: mention triggers ONLY in salons!
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInputContent(val);
+
+    // Ne déclencher les suggestions @ QUE dans les salons, JAMAIS dans les DMs
+    if (!isSalon) {
+      setMentionQuery(null);
+      setMentionStartIndex(-1);
+      return;
+    }
 
     const cursor = e.target.selectionStart || val.length;
     const textBeforeCursor = val.slice(0, cursor);
@@ -248,7 +336,6 @@ function ChatInner() {
     }
   };
 
-  // Insert selected mention into input
   const handleSelectMention = (targetUsername: string) => {
     if (mentionStartIndex === -1) return;
     const before = inputContent.slice(0, mentionStartIndex);
@@ -260,69 +347,8 @@ function ChatInner() {
     inputRef.current?.focus();
   };
 
-  // Create Channel
-  const handleCreateChannelSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newChannelName.trim() || creatingChannel) return;
-
-    setCreatingChannel(true);
-    try {
-      const created = await api.createChannel({
-        name: newChannelName.trim(),
-        description: newChannelDesc.trim(),
-        isPrivate: newChannelPrivate,
-      });
-      setChannels((prev) => [...prev, created]);
-      setActivePartner(created.id);
-      setMobileView("chat");
-      setCreateModalOpen(false);
-      setNewChannelName("");
-      setNewChannelDesc("");
-      setNewChannelPrivate(false);
-    } catch (err: any) {
-      alert(err.message || "Erreur lors de la création du salon");
-    } finally {
-      setCreatingChannel(false);
-    }
-  };
-
-  // Delete Channel (Admin only)
-  const handleDeleteChannel = async (channelId: string) => {
-    if (!confirm("Êtes-vous sûr de vouloir supprimer définitivement ce salon de KivaDB ?")) return;
-
-    try {
-      await api.deleteChannel(channelId);
-      setChannels((prev) => prev.filter((c) => c.id !== channelId));
-      if (activePartner === channelId) {
-        setActivePartner("general");
-      }
-      setChannelSettingsOpen(false);
-    } catch (err: any) {
-      alert(err.message || "Impossible de supprimer le salon");
-    }
-  };
-
-  // Toggle Channel Visibility (Admin only)
-  const handleToggleChannelVisibility = async (channel: ChannelItem) => {
-    try {
-      const updated = await api.updateChannel(channel.id, {
-        isPrivate: !channel.isPrivate,
-      });
-      setChannels((prev) => prev.map((c) => (c.id === channel.id ? updated : c)));
-      setSelectedChannel(updated);
-    } catch (err: any) {
-      alert(err.message || "Impossible de modifier la visibilité");
-    }
-  };
-
-  const handleSelectPartner = (partner: string) => {
-    setActivePartner(partner);
-    setMobileView("chat");
-  };
-
-  // Filtered mention suggestions
   const mentionSuggestions =
-    mentionQuery !== null
+    isSalon && mentionQuery !== null
       ? users.filter(
           (u) =>
             u.username.toLowerCase().includes(mentionQuery) ||
@@ -330,38 +356,249 @@ function ChatInner() {
         )
       : [];
 
-  // Active channel details
-  const activeChannel = channels.find(
-    (c) => c.id === activePartner || (activePartner === "all" && c.id === "general")
-  );
-  const isChannel = !!activeChannel;
-  const isDirect = !isChannel;
-  const currentDirectUser = users.find((u) => u.username === activePartner);
+  const handleSelectPartner = (partner: string) => {
+    setActivePartner(partner);
+    setMobileView("chat");
+  };
 
-  // Admin rights on active channel
-  const isChannelAdmin =
-    user &&
-    activeChannel &&
-    ((activeChannel.admins || []).includes(user.username) ||
-      activeChannel.creator === user.username);
+  // Salon selection with permission check for visible_private
+  const handleSelectSalon = (salon: SalonItem) => {
+    const isMemberOfSalon =
+      user &&
+      Array.isArray(salon.members) &&
+      salon.members.map((m) => m.toLowerCase()).includes(user.username.toLowerCase());
+
+    if (salon.visibility === "visible_private" && !isMemberOfSalon && !isCommAdmin) {
+      setRequestJoinSalonPrompt(salon);
+      return;
+    }
+
+    handleSelectPartner(salon.id);
+  };
+
+  // Actions: Communities
+  const handleCreateCommunitySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCommName.trim() || creatingComm) return;
+
+    setCreatingComm(true);
+    try {
+      const created = await api.createCommunity({
+        name: newCommName.trim(),
+        description: newCommDesc.trim(),
+        isPrivate: newCommPrivate,
+      });
+      await loadCommunitiesAndSalons();
+      setSelectedCommunityId(created.id);
+      setCreateCommunityOpen(false);
+      setNewCommName("");
+      setNewCommDesc("");
+      setNewCommPrivate(false);
+    } catch (err: any) {
+      alert(err.message || "Erreur de création de la communauté");
+    } finally {
+      setCreatingComm(false);
+    }
+  };
+
+  const handleInviteUserToComm = async () => {
+    if (!selectedComm || !inviteUsernameInput.trim()) return;
+    try {
+      await api.inviteToCommunity(selectedComm.id, inviteUsernameInput.trim());
+      alert(`Invitation envoyée à @${inviteUsernameInput.trim()} !`);
+      setInviteUsernameInput("");
+      await loadCommunitiesAndSalons();
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de l'invitation");
+    }
+  };
+
+  const handleRespondCommInvite = async (commId: string, accept: boolean) => {
+    try {
+      await api.respondToCommunityInvite(commId, accept);
+      await loadCommunitiesAndSalons();
+      if (accept) {
+        setSelectedCommunityId(commId);
+      }
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la réponse");
+    }
+  };
+
+  const handleToggleAdmin = async (targetUsername: string) => {
+    if (!selectedComm) return;
+    try {
+      const updated = await api.toggleCommunityAdmin(selectedComm.id, targetUsername);
+      setSelectedComm(updated);
+      await loadCommunitiesAndSalons();
+    } catch (err: any) {
+      alert(err.message || "Erreur de modification des administrateurs");
+    }
+  };
+
+  const handleDeleteCommunity = async (commId: string) => {
+    if (!confirm("Êtes-vous sûr de vouloir supprimer définitivement cette communauté et tous ses salons ?")) return;
+    try {
+      await api.deleteCommunity(commId);
+      await loadCommunitiesAndSalons();
+      setCommunitySettingsOpen(false);
+      setSelectedCommunityId("comm-general");
+      setActivePartner("general");
+    } catch (err: any) {
+      alert(err.message || "Impossible de supprimer la communauté");
+    }
+  };
+
+  // Actions: Salons
+  const handleCreateSalonSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSalonName.trim() || creatingSalon || !currentComm) return;
+
+    setCreatingSalon(true);
+    try {
+      const created = await api.createSalon(currentComm.id, {
+        name: newSalonName.trim(),
+        description: newSalonDesc.trim(),
+        visibility: newSalonVisibility,
+      });
+
+      const updated = await api.getSalons(currentComm.id);
+      setSalonsMap((prev) => ({ ...prev, [currentComm.id]: updated }));
+      setActivePartner(created.id);
+      setMobileView("chat");
+      setCreateSalonOpen(false);
+      setNewSalonName("");
+      setNewSalonDesc("");
+      setNewSalonVisibility("public");
+    } catch (err: any) {
+      alert(err.message || "Erreur lors de la création du salon");
+    } finally {
+      setCreatingSalon(false);
+    }
+  };
+
+  // Direct addition of community member to salon (NO invitation needed because user is already in community!)
+  const handleAddMemberToSalon = async () => {
+    if (!selectedSalon || !addMemberInput.trim()) return;
+    try {
+      const updated = await api.addMemberToSalon(selectedSalon.communityId, selectedSalon.id, addMemberInput.trim());
+      setSelectedSalon(updated);
+      const list = await api.getSalons(selectedSalon.communityId);
+      setSalonsMap((prev) => ({ ...prev, [selectedSalon.communityId]: list }));
+      setAddMemberInput("");
+      alert(`@${addMemberInput.trim()} a été ajouté avec succès au salon !`);
+    } catch (err: any) {
+      alert(err.message || "Impossible d'ajouter le membre");
+    }
+  };
+
+  // Request join visible_private salon
+  const handleSendJoinRequest = async (salon: SalonItem) => {
+    try {
+      await api.requestJoinSalon(salon.communityId, salon.id);
+      setRequestJoinSalonPrompt(null);
+      alert("Votre demande d'adhésion a été transmise aux administrateurs du salon !");
+      const list = await api.getSalons(salon.communityId);
+      setSalonsMap((prev) => ({ ...prev, [salon.communityId]: list }));
+    } catch (err: any) {
+      alert(err.message || "Erreur de demande d'accès");
+    }
+  };
+
+  // Approve / Decline salon join request
+  const handleRespondSalonJoin = async (targetUsername: string, approve: boolean) => {
+    if (!selectedSalon) return;
+    try {
+      const updated = await api.respondSalonJoinRequest(
+        selectedSalon.communityId,
+        selectedSalon.id,
+        targetUsername,
+        approve
+      );
+      setSelectedSalon(updated);
+      const list = await api.getSalons(selectedSalon.communityId);
+      setSalonsMap((prev) => ({ ...prev, [selectedSalon.communityId]: list }));
+    } catch (err: any) {
+      alert(err.message || "Erreur lors du traitement de la demande");
+    }
+  };
+
+  const handleDeleteSalon = async (salonId: string) => {
+    if (!selectedSalon) return;
+    if (!confirm("Êtes-vous sûr de vouloir supprimer définitivement ce salon ?")) return;
+
+    try {
+      await api.deleteSalon(selectedSalon.communityId, salonId);
+      const list = await api.getSalons(selectedSalon.communityId);
+      setSalonsMap((prev) => ({ ...prev, [selectedSalon.communityId]: list }));
+      if (activePartner === salonId) {
+        setActivePartner("general");
+      }
+      setSalonSettingsOpen(false);
+    } catch (err: any) {
+      alert(err.message || "Impossible de supprimer le salon");
+    }
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-2 sm:py-5 space-y-3">
-      {/* Ticker (hidden on phone in chat view to maximize space) */}
+      {/* Ticker */}
       <div className={mobileView === "chat" ? "hidden sm:block" : "block"}>
         <KivaEventTicker />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-10rem)] min-h-[480px]">
-        {/* Left Sidebar: Community Channels & Direct Chats */}
+      {/* Pending Community Invitations Banner */}
+      {myPendingInvites.length > 0 && (
+        <div className="space-y-2">
+          {myPendingInvites.map((invComm) => (
+            <div
+              key={invComm.id}
+              className="p-3 rounded-2xl bg-gradient-to-r from-amber-500/15 to-indigo-500/15 border border-amber-500/30 flex items-center justify-between gap-3 shadow-lg"
+            >
+              <div className="flex items-center gap-2.5">
+                <Bell className="h-5 w-5 text-amber-400 shrink-0 animate-bounce" />
+                <div className="text-xs sm:text-sm">
+                  <span className="font-bold text-white">Invitation communautaire : </span>
+                  <span className="text-slate-300">
+                    Vous êtes invité à rejoindre la communauté{" "}
+                    <strong className="text-indigo-300">{invComm.name}</strong> !
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  onClick={() => handleRespondCommInvite(invComm.id, true)}
+                  className="h-7 px-2.5 text-xs gap-1 bg-emerald-600 hover:bg-emerald-500 text-white"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Accepter
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleRespondCommInvite(invComm.id, false)}
+                  className="h-7 px-2 text-xs text-rose-400 hover:text-rose-300 hover:bg-rose-500/10"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Refuser
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-10rem)] min-h-[500px]">
+        {/* Left Sidebar: Communities, Salons & Direct Chats */}
         <Card
           className={`lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
             mobileView === "chat" ? "hidden lg:flex" : "flex"
           }`}
         >
           {/* Header */}
-          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70">
-            <div className="flex items-center justify-between mb-2.5">
+          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70 space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Link
                   href="/feed"
@@ -372,13 +609,55 @@ function ChatInner() {
                 </Link>
                 <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                   <MessageSquare className="h-4 w-4 text-indigo-400" />
-                  Communauté & Salons
+                  Communautés & Salons
                 </h2>
               </div>
               <Badge variant={connected ? "live" : "secondary"}>
                 {connected ? "KivaDB WS" : "Hors-ligne"}
               </Badge>
             </div>
+
+            {/* Community Switcher Dropdown */}
+            <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
+              <div className="flex-1 min-w-0">
+                <select
+                  value={selectedCommunityId}
+                  onChange={(e) => setSelectedCommunityId(e.target.value)}
+                  className="w-full bg-transparent text-xs font-semibold text-white border-none focus:outline-none focus:ring-0 cursor-pointer truncate"
+                >
+                  {communities.map((comm) => (
+                    <option key={comm.id} value={comm.id} className="bg-slate-900 text-white">
+                      {comm.name} {comm.isPrivate ? "🔒 (Privée)" : "🌐 (Publique)"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {isCommAdmin && currentComm && (
+                <button
+                  onClick={() => {
+                    setSelectedComm(currentComm);
+                    setCommunitySettingsOpen(true);
+                  }}
+                  className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+                  title="Gérer la communauté"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </button>
+              )}
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setCreateCommunityOpen(true)}
+                className="h-6 px-1.5 text-[11px] gap-1 text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-lg shrink-0"
+                title="Créer une communauté"
+              >
+                <Plus className="h-3 w-3" />
+                <span className="hidden sm:inline">Créer</span>
+              </Button>
+            </div>
+
             <div className="relative">
               <Input
                 type="text"
@@ -392,88 +671,112 @@ function ChatInner() {
           </div>
 
           {/* List Area */}
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 p-2 space-y-2">
-            {/* Community Salons Section */}
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 p-2 space-y-3">
+            {/* Salons in active Community */}
             <div>
               <div className="flex items-center justify-between px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                <span className="flex items-center gap-1.5">
-                  <Globe className="h-3.5 w-3.5 text-indigo-400" />
-                  Salons ({channels.length})
+                <span className="flex items-center gap-1.5 truncate">
+                  <Hash className="h-3.5 w-3.5 text-indigo-400" />
+                  Salons de {currentComm?.name || "la communauté"} ({currentSalons.length})
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setCreateModalOpen(true)}
-                  className="h-6 px-2 text-[10px] gap-1 text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-md"
-                >
-                  <Plus className="h-3 w-3" />
-                  Créer
-                </Button>
+                {isCommAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setCreateSalonOpen(true)}
+                    className="h-6 px-2 text-[10px] gap-1 text-indigo-400 hover:text-white hover:bg-indigo-600/20 rounded-md shrink-0"
+                  >
+                    <Plus className="h-3 w-3" />
+                    Salon
+                  </Button>
+                )}
               </div>
 
               <div className="space-y-1 mt-1">
-                {channels
+                {currentSalons
                   .filter(
-                    (c) =>
-                      c.name.toLowerCase().includes(searchFilter.toLowerCase()) ||
-                      c.id.toLowerCase().includes(searchFilter.toLowerCase())
+                    (s) =>
+                      s.name.toLowerCase().includes(searchFilter.toLowerCase()) ||
+                      s.id.toLowerCase().includes(searchFilter.toLowerCase())
                   )
-                  .map((ch) => {
+                  .map((salon) => {
                     const isActive =
-                      activePartner === ch.id ||
-                      (activePartner === "all" && ch.id === "general");
-                    const isAdmin =
+                      activePartner === salon.id ||
+                      (activePartner === "general" && salon.id === "general");
+
+                    const isMemberOfSalon =
                       user &&
-                      ((ch.admins || []).includes(user.username) ||
-                        ch.creator === user.username);
+                      Array.isArray(salon.members) &&
+                      salon.members.map((m) => m.toLowerCase()).includes(user.username.toLowerCase());
+
+                    const hasRequested =
+                      user &&
+                      Array.isArray(salon.joinRequests) &&
+                      salon.joinRequests.map((r) => r.toLowerCase()).includes(user.username.toLowerCase());
 
                     return (
                       <div
-                        key={ch.id}
-                        className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all cursor-pointer ${
+                        key={salon.id}
+                        className={`w-full flex items-center justify-between p-2 rounded-xl transition-all cursor-pointer ${
                           isActive
                             ? "bg-indigo-600/20 border border-indigo-500/30 text-white"
                             : "hover:bg-slate-800/50 text-slate-300"
                         }`}
-                        onClick={() => handleSelectPartner(ch.id)}
+                        onClick={() => handleSelectSalon(salon)}
                       >
                         <div className="flex items-center gap-2.5 min-w-0 flex-1">
                           <div
-                            className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${
-                              ch.isPrivate
+                            className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${
+                              salon.visibility === "hidden_private"
+                                ? "bg-purple-500/10 text-purple-400 border border-purple-500/20"
+                                : salon.visibility === "visible_private"
                                 ? "bg-amber-500/10 text-amber-400 border border-amber-500/20"
                                 : "bg-indigo-500/10 text-indigo-400 border border-indigo-500/20"
                             }`}
                           >
-                            {ch.isPrivate ? (
-                              <Lock className="h-4 w-4" />
+                            {salon.visibility === "hidden_private" ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : salon.visibility === "visible_private" ? (
+                              <Lock className="h-3.5 w-3.5" />
                             ) : (
-                              <Hash className="h-4 w-4" />
+                              <Hash className="h-3.5 w-3.5" />
                             )}
                           </div>
+
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="font-semibold text-xs sm:text-sm text-white truncate">
-                                {ch.name}
+                                {salon.name}
                               </span>
-                              {ch.isPrivate && (
-                                <Badge variant="warning" className="text-[9px] px-1.5 py-0 h-4">
+                              {salon.visibility === "visible_private" && (
+                                <Badge variant="warning" className="text-[9px] px-1 py-0 h-4">
                                   Privé
                                 </Badge>
                               )}
+                              {salon.visibility === "hidden_private" && (
+                                <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4 bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                  Masqué
+                                </Badge>
+                              )}
+                              {salon.visibility === "visible_private" && !isMemberOfSalon && (
+                                <span className="text-[9px] text-amber-400 font-medium">
+                                  {hasRequested ? "(Demande envoyée)" : "(Demander l'accès)"}
+                                </span>
+                              )}
                             </div>
                             <p className="text-[11px] text-slate-400 truncate">
-                              {ch.description || "Salon de discussion"}
+                              {salon.description || "Salon de discussion"}
                             </p>
                           </div>
                         </div>
 
-                        {isAdmin && ch.id !== "general" && (
+                        {/* Admin settings for salon */}
+                        {isCommAdmin && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelectedChannel(ch);
-                              setChannelSettingsOpen(true);
+                              setSelectedSalon(salon);
+                              setSalonSettingsOpen(true);
                             }}
                             className="p-1 rounded-md text-slate-500 hover:text-white hover:bg-slate-700/60 transition-colors"
                             title="Gérer le salon"
@@ -491,7 +794,7 @@ function ChatInner() {
             <div className="pt-2">
               <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Users className="h-3.5 w-3.5 text-indigo-400" />
-                Messages privés (Directs)
+                Messages privés (Directs 1-à-1)
               </div>
 
               <div className="space-y-1 mt-1">
@@ -559,50 +862,66 @@ function ChatInner() {
                 <ArrowLeft className="h-5 w-5" />
               </button>
 
-              {isChannel ? (
+              {isSalon ? (
                 <>
                   <div
                     className={`h-9 w-9 sm:h-10 sm:w-10 rounded-xl flex items-center justify-center shrink-0 ${
-                      activeChannel?.isPrivate
+                      activeSalon?.visibility === "hidden_private"
+                        ? "bg-purple-500/20 text-purple-300 border border-purple-500/30"
+                        : activeSalon?.visibility === "visible_private"
                         ? "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                         : "bg-gradient-to-tr from-indigo-500 to-purple-600 text-white"
                     }`}
                   >
-                    {activeChannel?.isPrivate ? (
+                    {activeSalon?.visibility === "hidden_private" ? (
+                      <EyeOff className="h-5 w-5" />
+                    ) : activeSalon?.visibility === "visible_private" ? (
                       <Lock className="h-5 w-5" />
                     ) : (
                       <Hash className="h-5 w-5" />
                     )}
                   </div>
                   <div className="truncate">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <h3 className="font-bold text-white text-sm sm:text-base truncate">
-                        {activeChannel?.name}
+                        {activeSalon?.name}
                       </h3>
-                      {activeChannel?.isPrivate && (
+                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-indigo-500/40 text-indigo-300">
+                        {currentComm?.name}
+                      </Badge>
+                      {activeSalon?.visibility === "visible_private" && (
                         <Badge variant="warning" className="text-[9px] px-1.5 py-0">
                           Salon Privé
                         </Badge>
                       )}
+                      {activeSalon?.visibility === "hidden_private" && (
+                        <Badge variant="destructive" className="text-[9px] px-1.5 py-0 bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          Salon Masqué
+                        </Badge>
+                      )}
                     </div>
                     <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                      {activeChannel?.description || "Salon communautaire KivaDB"}
+                      {activeSalon?.description || "Salon communautaire KivaDB"}
                     </p>
                   </div>
                 </>
               ) : (
                 <>
-                  <Avatar
-                    src={`https://api.dicebear.com/7.x/bottts/svg?seed=${activePartner}`}
-                    fallback={activePartner}
-                    size="md"
-                    className="shrink-0"
-                  />
+                  <Link href={`/profile/${activePartner}`} className="shrink-0">
+                    <Avatar
+                      src={`https://api.dicebear.com/7.x/bottts/svg?seed=${activePartner}`}
+                      fallback={activePartner}
+                      size="md"
+                    />
+                  </Link>
                   <div className="truncate">
                     <div className="flex items-center gap-1.5">
-                      <h3 className="font-bold text-white text-sm sm:text-base truncate">
+                      <Link
+                        href={`/profile/${activePartner}`}
+                        className="font-bold text-white text-sm sm:text-base truncate hover:underline hover:text-indigo-300 transition-colors"
+                      >
                         {currentDirectUser?.displayName || activePartner}
-                      </h3>
+                      </Link>
                       <span className="text-xs text-indigo-400 font-mono">@{activePartner}</span>
                       <Link href={`/profile/${activePartner}`}>
                         <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-400 hover:text-indigo-300 shrink-0" />
@@ -610,7 +929,7 @@ function ChatInner() {
                     </div>
                     <p className="text-[10px] sm:text-xs text-emerald-400 flex items-center gap-1 truncate">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      Conversation privée chiffrée
+                      Conversation directe 1-à-1
                     </p>
                   </div>
                 </>
@@ -618,18 +937,18 @@ function ChatInner() {
             </div>
 
             <div className="flex items-center gap-2">
-              {isChannelAdmin && activeChannel && activeChannel.id !== "general" && (
+              {isSalonAdmin && activeSalon && (
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => {
-                    setSelectedChannel(activeChannel);
-                    setChannelSettingsOpen(true);
+                    setSelectedSalon(activeSalon);
+                    setSalonSettingsOpen(true);
                   }}
                   className="h-8 px-2.5 text-xs gap-1.5 border-slate-700"
                 >
                   <Settings className="h-3.5 w-3.5 text-indigo-400" />
-                  <span className="hidden sm:inline">Gérer</span>
+                  <span className="hidden sm:inline">Gérer le salon</span>
                 </Button>
               )}
               <Badge variant="outline" className="font-mono text-[10px] sm:text-xs shrink-0">
@@ -645,8 +964,8 @@ function ChatInner() {
                 <MessageSquare className="h-9 w-9 sm:h-11 sm:w-11 text-slate-600 mb-1" />
                 <p className="font-bold text-white text-sm sm:text-base">Aucun message pour l&apos;instant</p>
                 <p className="text-xs text-slate-400 max-w-sm">
-                  {isChannel
-                    ? `Partagez le premier message dans ${activeChannel?.name || "ce salon"} ! Utilisez @ pour mentionner un membre.`
+                  {isSalon
+                    ? `Partagez le premier message dans ${activeSalon?.name || "ce salon"} ! Tapez @ pour mentionner un membre.`
                     : `Commencez votre conversation privée avec ${currentDirectUser?.displayName || activePartner}.`}
                 </p>
               </div>
@@ -664,7 +983,11 @@ function ChatInner() {
                     }`}
                   >
                     {!isSentByMe && (
-                      <Link href={`/profile/${m.from}`} className="shrink-0 mb-1">
+                      <Link
+                        href={`/profile/${m.from}`}
+                        className="shrink-0 mb-1 transition-transform hover:scale-105"
+                        title={`Voir le profil de ${displayName}`}
+                      >
                         <Avatar
                           src={m.fromAvatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${m.from}`}
                           fallback={m.from}
@@ -682,22 +1005,28 @@ function ChatInner() {
                           : "bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none"
                       }`}
                     >
-                      {/* Full Name & Mention Badge */}
+                      {/* Full Name & @Username (BOTH CLICKABLE TO PROFILE!) */}
                       <div className="flex items-center justify-between gap-2 mb-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                        <Link
+                          href={`/profile/${m.from}`}
+                          className="flex items-center gap-1.5 flex-wrap group transition-colors"
+                          title={`Accéder au profil de @${m.from}`}
+                        >
                           <span
-                            className={`font-bold text-xs sm:text-sm ${
-                              isSentByMe ? "text-indigo-100" : "text-indigo-300"
+                            className={`font-bold text-xs sm:text-sm group-hover:underline ${
+                              isSentByMe
+                                ? "text-indigo-100 group-hover:text-white"
+                                : "text-indigo-300 group-hover:text-indigo-200"
                             }`}
                           >
                             {displayName}
                           </span>
                           {!isSentByMe && (
-                            <span className="text-[10px] text-slate-400 font-mono">
+                            <span className="text-[10px] text-slate-400 font-mono group-hover:text-slate-300">
                               @{m.from}
                             </span>
                           )}
-                        </div>
+                        </Link>
                         {isMentioned && !isSentByMe && (
                           <Badge variant="warning" className="text-[9px] px-1.5 py-0 h-4">
                             @Vous mentionne
@@ -708,7 +1037,6 @@ function ChatInner() {
                       <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
                         {renderMessageContent(m.content, isSentByMe)}
                       </p>
-
 
                       <div className="flex items-center justify-end gap-1.5 mt-1 text-[9px] sm:text-[10px] text-slate-300/80 font-mono">
                         <span>{formatTime(m.timestamp)}</span>
@@ -721,12 +1049,12 @@ function ChatInner() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* @ Mention Suggestions Popup */}
-          {mentionQuery !== null && mentionSuggestions.length > 0 && (
+          {/* @ Mention Suggestions Popup (SALONS ONLY!) */}
+          {isSalon && mentionQuery !== null && mentionSuggestions.length > 0 && (
             <div className="absolute bottom-16 left-3 right-3 sm:left-4 sm:right-auto sm:w-80 max-h-48 overflow-y-auto rounded-xl bg-slate-900/95 border border-indigo-500/40 shadow-2xl backdrop-blur-xl p-1 z-30 divide-y divide-slate-800/60">
               <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1">
                 <AtSign className="h-3 w-3 text-indigo-400" />
-                Mentionner un utilisateur
+                Mentionner un utilisateur dans le salon
               </div>
               {mentionSuggestions.slice(0, 5).map((sug) => (
                 <button
@@ -755,28 +1083,33 @@ function ChatInner() {
                 ref={inputRef}
                 type="text"
                 placeholder={
-                  isChannel
-                    ? `Écrire dans ${activeChannel?.name}... Tapez @ pour mentionner`
-                    : `Écrire à ${currentDirectUser?.displayName || activePartner}... Tapez @ pour mentionner`
+                  isSalon
+                    ? `Écrire dans #${activeSalon?.name}... Tapez @ pour mentionner`
+                    : `Écrire à ${currentDirectUser?.displayName || activePartner}...`
                 }
                 value={inputContent}
                 onChange={handleInputChange}
-                className="w-full bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80 pr-8"
+                className={`w-full bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80 ${
+                  isSalon ? "pr-8" : "pr-3"
+                }`}
                 autoFocus
               />
-              <button
-                type="button"
-                onClick={() => {
-                  setInputContent((prev) => prev + "@");
-                  setMentionQuery("");
-                  setMentionStartIndex(inputContent.length);
-                  inputRef.current?.focus();
-                }}
-                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-indigo-300"
-                title="Mentionner avec @"
-              >
-                <AtSign className="h-4 w-4" />
-              </button>
+              {/* @ Mention button: VISIBLE ONLY IN SALONS, HIDDEN IN DIRECT MESSAGES! */}
+              {isSalon && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInputContent((prev) => prev + "@");
+                    setMentionQuery("");
+                    setMentionStartIndex(inputContent.length);
+                    inputRef.current?.focus();
+                  }}
+                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-indigo-300"
+                  title="Mentionner avec @"
+                >
+                  <AtSign className="h-4 w-4" />
+                </button>
+              )}
             </div>
             <Button
               type="submit"
@@ -791,23 +1124,64 @@ function ChatInner() {
         </Card>
       </div>
 
-      {/* Modal: Créer un salon */}
+      {/* Modal: Join Request for visible_private salon */}
+      {requestJoinSalonPrompt && (
+        <Dialog
+          open={!!requestJoinSalonPrompt}
+          onOpenChange={() => setRequestJoinSalonPrompt(null)}
+          title={`Accès au salon : ${requestJoinSalonPrompt.name}`}
+          description="Ce salon est privé. Vous devez demander l'adhésion pour pouvoir y accéder et participer."
+        >
+          <div className="space-y-4">
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-start gap-3">
+              <Lock className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-300">
+                <p className="font-semibold text-white mb-1">Salon Privé sur approbation</p>
+                <p>{requestJoinSalonPrompt.description || "Aucune description fournie."}</p>
+                <p className="mt-2 text-slate-400">
+                  Créé par : <strong className="text-white">@{requestJoinSalonPrompt.creator}</strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRequestJoinSalonPrompt(null)}
+              >
+                Annuler
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleSendJoinRequest(requestJoinSalonPrompt)}
+                className="gap-2 bg-amber-600 hover:bg-amber-500 text-white"
+              >
+                <UserPlus className="h-4 w-4" />
+                Demander à adhérer
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+
+      {/* Modal: Créer une Communauté */}
       <Dialog
-        open={createModalOpen}
-        onOpenChange={setCreateModalOpen}
-        title="Créer un nouveau salon"
-        description="Créez un salon public ou privé pour votre communauté KivaSocial."
+        open={createCommunityOpen}
+        onOpenChange={setCreateCommunityOpen}
+        title="Créer une nouvelle Communauté"
+        description="Créez votre propre communauté, personnalisez sa visibilité et invitez des membres."
       >
-        <form onSubmit={handleCreateChannelSubmit} className="space-y-4">
+        <form onSubmit={handleCreateCommunitySubmit} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-              Nom du salon *
+              Nom de la communauté *
             </label>
             <Input
               type="text"
-              placeholder="ex: Tech & Développeurs, Jeux Vidéo..."
-              value={newChannelName}
-              onChange={(e) => setNewChannelName(e.target.value)}
+              placeholder="ex: Développeurs TypeScript, Guilde Gaming..."
+              value={newCommName}
+              onChange={(e) => setNewCommName(e.target.value)}
               required
             />
           </div>
@@ -818,23 +1192,23 @@ function ChatInner() {
             </label>
             <Input
               type="text"
-              placeholder="ex: Salon d'échange sur les technologies et le code"
-              value={newChannelDesc}
-              onChange={(e) => setNewChannelDesc(e.target.value)}
+              placeholder="ex: Communauté d'entraide et de partage technique"
+              value={newCommDesc}
+              onChange={(e) => setNewCommDesc(e.target.value)}
             />
           </div>
 
           <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-800/40 border border-slate-700/60">
             <input
               type="checkbox"
-              id="isPrivateCheck"
-              checked={newChannelPrivate}
-              onChange={(e) => setNewChannelPrivate(e.target.checked)}
+              id="isPrivateCommCheck"
+              checked={newCommPrivate}
+              onChange={(e) => setNewCommPrivate(e.target.checked)}
               className="h-4 w-4 rounded border-slate-700 text-indigo-600 focus:ring-indigo-500 bg-slate-900"
             />
-            <label htmlFor="isPrivateCheck" className="text-xs text-slate-300 cursor-pointer">
-              <span className="font-bold text-white block">Salon Privé</span>
-              Seuls les administrateurs et membres autorisés pourront voir et discuter.
+            <label htmlFor="isPrivateCommCheck" className="text-xs text-slate-300 cursor-pointer">
+              <span className="font-bold text-white block">Communauté Privée & Masquée</span>
+              Seules les personnes invitées pourront voir et rejoindre cette communauté.
             </label>
           </div>
 
@@ -842,11 +1216,243 @@ function ChatInner() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setCreateModalOpen(false)}
+              onClick={() => setCreateCommunityOpen(false)}
             >
               Annuler
             </Button>
-            <Button type="submit" isLoading={creatingChannel} className="gap-2">
+            <Button type="submit" isLoading={creatingComm} className="gap-2">
+              <Plus className="h-4 w-4" />
+              Créer la communauté
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+
+      {/* Modal: Gérer la Communauté */}
+      {selectedComm && (
+        <Dialog
+          open={communitySettingsOpen}
+          onOpenChange={setCommunitySettingsOpen}
+          title={`Paramètres : ${selectedComm.name}`}
+          description={`Créée par @${selectedComm.creator}. Gérez les membres, administrateurs et invitations.`}
+        >
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Info */}
+            <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-2 text-xs">
+              <div className="flex justify-between py-1 border-b border-slate-800/60">
+                <span className="text-slate-400">Créateur :</span>
+                <span className="font-semibold text-white font-mono flex items-center gap-1">
+                  <Crown className="h-3 w-3 text-amber-400" />
+                  @{selectedComm.creator}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b border-slate-800/60">
+                <span className="text-slate-400">Visibilité :</span>
+                <Badge variant={selectedComm.isPrivate ? "warning" : "default"}>
+                  {selectedComm.isPrivate ? "Privée" : "Publique"}
+                </Badge>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-slate-400">Total membres :</span>
+                <span className="text-white font-bold">{selectedComm.members?.length || 1}</span>
+              </div>
+            </div>
+
+            {/* Inviter un utilisateur */}
+            <div className="p-3 rounded-xl bg-indigo-950/30 border border-indigo-500/30 space-y-2">
+              <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                <UserPlus className="h-4 w-4 text-indigo-400" />
+                Inviter un nouvel utilisateur dans la communauté
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                L&apos;utilisateur recevra une invitation qu&apos;il devra accepter pour entrer.
+              </p>
+              <div className="flex gap-2">
+                <select
+                  value={inviteUsernameInput}
+                  onChange={(e) => setInviteUsernameInput(e.target.value)}
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg text-xs px-2.5 py-1.5 text-white"
+                >
+                  <option value="">Sélectionner un utilisateur...</option>
+                  {users
+                    .filter((u) => !selectedComm.members?.map((m) => m.toLowerCase()).includes(u.username.toLowerCase()))
+                    .map((u) => (
+                      <option key={u.username} value={u.username}>
+                        {u.displayName} (@{u.username})
+                      </option>
+                    ))}
+                </select>
+                <Button size="sm" onClick={handleInviteUserToComm} disabled={!inviteUsernameInput}>
+                  Inviter
+                </Button>
+              </div>
+            </div>
+
+            {/* Liste des membres et promotion Admin */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                Membres de la communauté ({selectedComm.members?.length || 0})
+              </h4>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {selectedComm.members?.map((mem) => {
+                  const isMemAdmin = (selectedComm.admins || []).map((a) => a.toLowerCase()).includes(mem.toLowerCase());
+                  const isMemCreator = selectedComm.creator.toLowerCase() === mem.toLowerCase();
+
+                  return (
+                    <div
+                      key={mem}
+                      className="flex items-center justify-between p-2 rounded-lg bg-slate-800/40 text-xs"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar src={`https://api.dicebear.com/7.x/bottts/svg?seed=${mem}`} fallback={mem} size="sm" />
+                        <div>
+                          <span className="font-semibold text-white">@{mem}</span>
+                          {isMemCreator && (
+                            <Badge variant="warning" className="ml-1.5 text-[9px] px-1 py-0">
+                              Créateur
+                            </Badge>
+                          )}
+                          {isMemAdmin && !isMemCreator && (
+                            <Badge variant="default" className="ml-1.5 text-[9px] px-1 py-0">
+                              Admin
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {isCommCreator && !isMemCreator && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleToggleAdmin(mem)}
+                          className="h-6 text-[10px] text-indigo-400 hover:text-white"
+                        >
+                          {isMemAdmin ? "Retirer Admin" : "Nommer Admin"}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Supprimer la communauté (Creator only) */}
+            {isCommCreator && selectedComm.id !== "comm-general" && (
+              <div className="pt-2 border-t border-slate-800">
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2 text-xs"
+                  onClick={() => handleDeleteCommunity(selectedComm.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Supprimer définitivement la communauté
+                </Button>
+              </div>
+            )}
+          </div>
+        </Dialog>
+      )}
+
+      {/* Modal: Créer un Salon */}
+      <Dialog
+        open={createSalonOpen}
+        onOpenChange={setCreateSalonOpen}
+        title="Créer un nouveau salon"
+        description={`Ajoutez un salon dans la communauté ${currentComm?.name}. Les membres actuels y auront accès.`}
+      >
+        <form onSubmit={handleCreateSalonSubmit} className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+              Nom du salon *
+            </label>
+            <Input
+              type="text"
+              placeholder="ex: Annonces, Général, Salle-VIP..."
+              value={newSalonName}
+              onChange={(e) => setNewSalonName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+              Description (Optionnel)
+            </label>
+            <Input
+              type="text"
+              placeholder="ex: Échanges et discussions générales"
+              value={newSalonDesc}
+              onChange={(e) => setNewSalonDesc(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-semibold uppercase tracking-wider text-slate-300">
+              Visibilité et Accès du Salon
+            </label>
+            <div className="space-y-2 text-xs">
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
+                <input
+                  type="radio"
+                  name="salonVis"
+                  value="public"
+                  checked={newSalonVisibility === "public"}
+                  onChange={() => setNewSalonVisibility("public")}
+                  className="mt-0.5 text-indigo-600"
+                />
+                <div>
+                  <span className="font-bold text-white block">Public dans la communauté</span>
+                  <span className="text-slate-400 text-[11px]">
+                    Tous les membres actuels de la communauté y sont ajoutés automatiquement.
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
+                <input
+                  type="radio"
+                  name="salonVis"
+                  value="visible_private"
+                  checked={newSalonVisibility === "visible_private"}
+                  onChange={() => setNewSalonVisibility("visible_private")}
+                  className="mt-0.5 text-amber-500"
+                />
+                <div>
+                  <span className="font-bold text-white block">Privé & Visible</span>
+                  <span className="text-slate-400 text-[11px]">
+                    Visible dans la liste par les membres. Ceux qui n&apos;y sont pas doivent cliquer pour demander d&apos;adhérer.
+                  </span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-slate-800/40 border border-slate-700/60 cursor-pointer">
+                <input
+                  type="radio"
+                  name="salonVis"
+                  value="hidden_private"
+                  checked={newSalonVisibility === "hidden_private"}
+                  onChange={() => setNewSalonVisibility("hidden_private")}
+                  className="mt-0.5 text-purple-500"
+                />
+                <div>
+                  <span className="font-bold text-white block">Privé & Masqué</span>
+                  <span className="text-slate-400 text-[11px]">
+                    Totalement invisible pour les personnes non membres. Seul un administrateur peut y ajouter des membres.
+                  </span>
+                </div>
+              </label>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setCreateSalonOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button type="submit" isLoading={creatingSalon} className="gap-2">
               <Plus className="h-4 w-4" />
               Créer le salon
             </Button>
@@ -854,54 +1460,129 @@ function ChatInner() {
         </form>
       </Dialog>
 
-      {/* Modal: Gérer le salon (Droits administrateur) */}
-      {selectedChannel && (
+      {/* Modal: Gérer le Salon (Droits Administrateur) */}
+      {selectedSalon && (
         <Dialog
-          open={channelSettingsOpen}
-          onOpenChange={setChannelSettingsOpen}
-          title={`Paramètres : ${selectedChannel.name}`}
-          description={`Géré par ${selectedChannel.creator}. Seuls les administrateurs peuvent modifier ce salon.`}
+          open={salonSettingsOpen}
+          onOpenChange={setSalonSettingsOpen}
+          title={`Paramètres du salon : #${selectedSalon.name}`}
+          description="Gérez les membres, les demandes d'adhésion et la visibilité."
         >
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Info */}
             <div className="p-3 rounded-xl bg-slate-800/40 border border-slate-700/60 space-y-2 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-800/60">
                 <span className="text-slate-400">Créateur du salon :</span>
-                <span className="font-semibold text-white font-mono">@{selectedChannel.creator}</span>
+                <span className="font-semibold text-white font-mono">@{selectedSalon.creator}</span>
               </div>
               <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Visibilité actuelle :</span>
-                <Badge variant={selectedChannel.isPrivate ? "warning" : "default"}>
-                  {selectedChannel.isPrivate ? "Privé" : "Public"}
+                <span className="text-slate-400">Visibilité :</span>
+                <Badge
+                  variant={
+                    selectedSalon.visibility === "hidden_private"
+                      ? "destructive"
+                      : selectedSalon.visibility === "visible_private"
+                      ? "warning"
+                      : "default"
+                  }
+                >
+                  {selectedSalon.visibility === "hidden_private"
+                    ? "Privé & Masqué"
+                    : selectedSalon.visibility === "visible_private"
+                    ? "Privé & Visible"
+                    : "Public"}
                 </Badge>
               </div>
               <div className="flex justify-between py-1">
-                <span className="text-slate-400">Clé KivaDB :</span>
-                <span className="font-mono text-indigo-300">channel:{selectedChannel.id}</span>
+                <span className="text-slate-400">Membres avec accès :</span>
+                <span className="text-white font-bold">{selectedSalon.members?.length || 1}</span>
               </div>
             </div>
 
-            {/* Admin actions */}
-            <div className="space-y-2 pt-2">
-              <Button
-                variant="outline"
-                className="w-full justify-between text-xs"
-                onClick={() => handleToggleChannelVisibility(selectedChannel)}
-              >
-                <span>Changer la visibilité :</span>
-                <span className="font-bold text-indigo-400">
-                  {selectedChannel.isPrivate ? "Rendre Public" : "Rendre Privé"}
-                </span>
-              </Button>
-
-              <Button
-                variant="destructive"
-                className="w-full gap-2 text-xs"
-                onClick={() => handleDeleteChannel(selectedChannel.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Supprimer définitivement ce salon
-              </Button>
+            {/* Ajouter directement un membre de la communauté (SANS INVITATION) */}
+            <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/70 space-y-2">
+              <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                <UserPlus className="h-4 w-4 text-emerald-400" />
+                Ajouter un membre de la communauté au salon
+              </h4>
+              <p className="text-[11px] text-slate-400">
+                Puisqu&apos;il est déjà dans la communauté, vous l&apos;ajoutez directement au salon (aucune invitation requise).
+              </p>
+              <div className="flex gap-2">
+                <select
+                  value={addMemberInput}
+                  onChange={(e) => setAddMemberInput(e.target.value)}
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg text-xs px-2.5 py-1.5 text-white"
+                >
+                  <option value="">Choisir parmi les membres de la communauté...</option>
+                  {currentComm?.members
+                    ?.filter((m) => !selectedSalon.members?.map((sm) => sm.toLowerCase()).includes(m.toLowerCase()))
+                    .map((m) => (
+                      <option key={m} value={m}>
+                        @{m}
+                      </option>
+                    ))}
+                </select>
+                <Button size="sm" onClick={handleAddMemberToSalon} disabled={!addMemberInput}>
+                  Ajouter au salon
+                </Button>
+              </div>
             </div>
+
+            {/* Demandes d'adhésion en attente (visible_private) */}
+            {selectedSalon.visibility === "visible_private" && (
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <AlertCircle className="h-3.5 w-3.5" />
+                  Demandes d&apos;adhésion en attente ({selectedSalon.joinRequests?.length || 0})
+                </h4>
+                {(!selectedSalon.joinRequests || selectedSalon.joinRequests.length === 0) ? (
+                  <p className="text-xs text-slate-400 italic">Aucune demande en attente.</p>
+                ) : (
+                  <div className="space-y-1">
+                    {selectedSalon.joinRequests.map((reqUser) => (
+                      <div
+                        key={reqUser}
+                        className="flex items-center justify-between p-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs"
+                      >
+                        <span className="font-bold text-white font-mono">@{reqUser}</span>
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            onClick={() => handleRespondSalonJoin(reqUser, true)}
+                            className="h-6 px-2 text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white"
+                          >
+                            Accepter
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleRespondSalonJoin(reqUser, false)}
+                            className="h-6 px-2 text-[10px] text-rose-400 hover:text-rose-300"
+                          >
+                            Refuser
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Supprimer le salon */}
+            {selectedSalon.id !== "general" && (
+              <div className="pt-2 border-t border-slate-800">
+                <Button
+                  variant="destructive"
+                  className="w-full gap-2 text-xs"
+                  onClick={() => handleDeleteSalon(selectedSalon.id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Supprimer ce salon
+                </Button>
+              </div>
+            )}
           </div>
         </Dialog>
       )}

@@ -89,7 +89,13 @@ export class MessagesService {
     const u1 = currentUser?.trim().toLowerCase();
     const target = withTarget ? withTarget.trim().toLowerCase() : 'general';
 
-    const isSalon = target === 'all' || target === 'general' || target.startsWith('channel:') || target.startsWith('c-') || target.startsWith('salon:');
+    const isSalon =
+      target === 'all' ||
+      target === 'general' ||
+      target.startsWith('channel:') ||
+      target.startsWith('c-') ||
+      target.startsWith('salon:') ||
+      target.startsWith('s-');
 
     for (const item of rawItems) {
       if (!item.key.startsWith('msg:')) continue;
@@ -135,7 +141,17 @@ export class MessagesService {
       if (!msg || !msg.content) continue;
 
       let partner: string | null = null;
-      if (msg.from === user && msg.to && msg.to !== 'all') {
+      const isSalonMsg =
+        msg.to === 'all' ||
+        msg.to === 'general' ||
+        msg.to.startsWith('s-') ||
+        msg.to.startsWith('c-') ||
+        msg.to.startsWith('salon:') ||
+        msg.to.startsWith('channel:');
+
+      if (isSalonMsg) continue;
+
+      if (msg.from === user && msg.to) {
         partner = msg.to;
       } else if (msg.to === user && msg.from) {
         partner = msg.from;

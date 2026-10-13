@@ -46,6 +46,34 @@ export interface ChannelItem {
   createdAt: number;
 }
 
+export type SalonVisibility = 'public' | 'visible_private' | 'hidden_private';
+
+export interface SalonItem {
+  id: string;
+  communityId: string;
+  name: string;
+  description: string;
+  creator: string;
+  visibility: SalonVisibility;
+  members: string[];
+  joinRequests: string[];
+  createdAt: number;
+}
+
+export interface CommunityItem {
+  id: string;
+  name: string;
+  description: string;
+  creator: string;
+  admins: string[];
+  members: string[];
+  isPrivate: boolean;
+  pendingInvites: string[];
+  joinRequests: string[];
+  createdAt: number;
+  salons?: SalonItem[];
+}
+
 export interface PostItem {
   id: string;
   author: string;
@@ -253,6 +281,188 @@ class ApiService {
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || "Erreur de suppression du salon");
     return true;
+  }
+
+  // ==========================================
+  // COMMUNITIES & SALONS
+  // ==========================================
+
+  async getCommunities(): Promise<CommunityItem[]> {
+    const res = await fetch(`${getBackendUrl()}/communities`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async createCommunity(data: { name: string; description?: string; isPrivate?: boolean }): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de création de la communauté");
+    return json;
+  }
+
+  async updateCommunity(id: string, data: { name?: string; description?: string; isPrivate?: boolean }): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de mise à jour");
+    return json;
+  }
+
+  async deleteCommunity(id: string): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+    return res.ok;
+  }
+
+  async inviteToCommunity(communityId: string, username: string): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/invite`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ username }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur d'invitation");
+    return json;
+  }
+
+  async respondToCommunityInvite(communityId: string, accept: boolean): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/respond-invite`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ accept }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de réponse à l'invitation");
+    return json;
+  }
+
+  async joinCommunity(communityId: string): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/join`, {
+      method: "POST",
+      headers: this.getHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur pour rejoindre la communauté");
+    return json;
+  }
+
+  async toggleCommunityAdmin(communityId: string, username: string): Promise<CommunityItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/admins`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ username }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de modification des administrateurs");
+    return json;
+  }
+
+  async getSalons(communityId: string): Promise<SalonItem[]> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async createSalon(
+    communityId: string,
+    data: { name: string; description?: string; visibility?: SalonVisibility }
+  ): Promise<SalonItem> {
+    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de création du salon");
+    return json;
+  }
+
+  async updateSalon(
+    communityId: string,
+    salonId: string,
+    data: { name?: string; description?: string; visibility?: SalonVisibility }
+  ): Promise<SalonItem> {
+    const res = await fetch(
+      `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}`,
+      {
+        method: "PUT",
+        headers: this.getHeaders(),
+        body: JSON.stringify(data),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de mise à jour du salon");
+    return json;
+  }
+
+  async deleteSalon(communityId: string, salonId: string): Promise<boolean> {
+    const res = await fetch(
+      `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}`,
+      {
+        method: "DELETE",
+        headers: this.getHeaders(),
+      }
+    );
+    return res.ok;
+  }
+
+  async addMemberToSalon(communityId: string, salonId: string, username: string): Promise<SalonItem> {
+    const res = await fetch(
+      `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/members`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ username }),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur lors de l'ajout au salon");
+    return json;
+  }
+
+  async requestJoinSalon(communityId: string, salonId: string): Promise<SalonItem> {
+    const res = await fetch(
+      `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/join-request`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur lors de la demande d'accès");
+    return json;
+  }
+
+  async respondSalonJoinRequest(
+    communityId: string,
+    salonId: string,
+    username: string,
+    approve: boolean
+  ): Promise<SalonItem> {
+    const res = await fetch(
+      `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/respond-join`,
+      {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({ username, approve }),
+      }
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de traitement de la demande");
+    return json;
   }
 }
 
