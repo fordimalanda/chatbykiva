@@ -35,11 +35,18 @@ export interface SalonDocument {
   createdAt: number;
 }
 
+import { NotificationsService } from '../notifications/notifications.service';
+import { Inject, forwardRef } from '@nestjs/common';
+
 @Injectable()
 export class CommunitiesService implements OnModuleInit {
   private readonly logger = new Logger(CommunitiesService.name);
 
-  constructor(private readonly kivaService: KivaService) {}
+  constructor(
+    private readonly kivaService: KivaService,
+    @Inject(forwardRef(() => NotificationsService))
+    private readonly notificationsService: NotificationsService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureDefaultCommunityAndSalons();
@@ -286,6 +293,15 @@ export class CommunitiesService implements OnModuleInit {
     if (!comm.pendingInvites.map((p) => p.toLowerCase()).includes(cleanTarget)) {
       comm.pendingInvites.push(cleanTarget);
       await this.kivaService.set(key, comm);
+
+      this.notificationsService.createNotification({
+        toUser: cleanTarget,
+        fromUser: cleanUser,
+        type: 'invite',
+        title: 'Invitation Communautaire',
+        message: `@${cleanUser} vous invite à rejoindre la communauté "${comm.name}"`,
+        link: '/messages',
+      }).catch(console.error);
     }
 
     return comm;
@@ -665,6 +681,21 @@ export class CommunitiesService implements OnModuleInit {
     if (!salon.joinRequests.map((r) => r.toLowerCase()).includes(cleanUser)) {
       salon.joinRequests.push(cleanUser);
       await this.kivaService.set(`salon:${salonId}`, salon);
+
+      // Notify community creator and admins
+      const targetAdmins = Array.from(new Set([comm.creator, ...(comm.admins || [])]));
+      for (const admin of targetAdmins) {
+        if (admin.toLowerCase() !== cleanUser) {
+          this.notificationsService.createNotification({
+            toUser: admin,
+            fromUser: cleanUser,
+            type: 'join_request',
+            title: "Demande d'accès au salon",
+            message: `@${cleanUser} demande à rejoindre le salon #${salon.name}`,
+            link: '/messages',
+          }).catch(console.error);
+        }
+      }
     }
 
     return salon;

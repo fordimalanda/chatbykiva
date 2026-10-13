@@ -1,0 +1,62 @@
+import {
+  Controller,
+  Post,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+
+export interface UploadedFileResponse {
+  url: string;
+  name: string;
+  size: number;
+  mimeType: string;
+  type: 'image' | 'video' | 'audio' | 'document';
+}
+
+@Controller('uploads')
+export class UploadsController {
+  @Post()
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: './uploads',
+        filename: (req, file, callback) => {
+          const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+          const ext = extname(file.originalname) || '';
+          callback(null, `file_${uniqueSuffix}${ext}`);
+        },
+      }),
+      limits: {
+        fileSize: 100 * 1024 * 1024, // 100MB max for videos, docs, etc.
+      },
+    })
+  )
+  uploadFile(@UploadedFile() file: Express.Multer.File): UploadedFileResponse {
+    if (!file) {
+      throw new BadRequestException('Aucun fichier fourni.');
+    }
+
+    const mime = file.mimetype.toLowerCase();
+    let type: 'image' | 'video' | 'audio' | 'document' = 'document';
+
+    if (mime.startsWith('image/')) {
+      type = 'image';
+    } else if (mime.startsWith('video/')) {
+      type = 'video';
+    } else if (mime.startsWith('audio/')) {
+      type = 'audio';
+    }
+
+    return {
+      url: `/uploads/${file.filename}`,
+      name: file.originalname,
+      size: file.size,
+      mimeType: file.mimetype,
+      type,
+    };
+  }
+}

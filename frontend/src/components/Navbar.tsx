@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
+import { api } from "@/lib/api";
 import { Button } from "./ui/Button";
 import { Avatar } from "./ui/Avatar";
 import { Dialog } from "./ui/Dialog";
+import { NotificationsModal } from "./NotificationsModal";
 import {
   Users,
   MessageSquare,
@@ -15,15 +17,74 @@ import {
   User,
   LogOut,
   Database,
-  Radio,
   AlertTriangle,
+  Bell,
 } from "lucide-react";
 
 export function Navbar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
-  const { connected } = useSocket();
+  const { socket, connected } = useSocket();
   const [logoutModalOpen, setLogoutModalOpen] = useState(false);
+  const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
+  const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
+  const [unreadMessagesCount, setUnreadMessagesCount] = useState(0);
+
+  // Load initial counts
+  const fetchCounts = async () => {
+    if (!user) return;
+    try {
+      const [notifCount, msgCount] = await Promise.all([
+        api.getUnreadNotificationsCount(),
+        api.getUnreadMessagesCount(),
+      ]);
+      setUnreadNotifsCount(notifCount);
+      setUnreadMessagesCount(msgCount);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    fetchCounts();
+  }, [user]);
+
+  // Real-time synchronization
+  useEffect(() => {
+    if (!socket || !user) return;
+
+    const handleNewNotif = () => {
+      setUnreadNotifsCount((prev) => prev + 1);
+    };
+
+    const handleNotifsAllRead = () => {
+      setUnreadNotifsCount(0);
+    };
+
+    const handleNewMessage = (msg: any) => {
+      // If it's a direct message sent to current user, increment unread messages
+      if (msg.to?.toLowerCase() === user.username.toLowerCase()) {
+        setUnreadMessagesCount((prev) => prev + 1);
+      }
+    };
+
+    const handleMessageRead = () => {
+      api.getUnreadMessagesCount().then(setUnreadMessagesCount).catch(console.error);
+    };
+
+    socket.on("notification:new", handleNewNotif);
+    socket.on("notification:all_read", handleNotifsAllRead);
+    socket.on("message:direct", handleNewMessage);
+    socket.on("message:read", handleMessageRead);
+
+    return () => {
+      socket.off("notification:new", handleNewNotif);
+      socket.off("notification:all_read", handleNotifsAllRead);
+      socket.off("message:direct", handleNewMessage);
+      socket.off("message:read", handleMessageRead);
+    };
+  }, [socket, user]);
 
   if (!user && (pathname === "/login" || pathname === "/register")) {
     return null;
@@ -32,7 +93,12 @@ export function Navbar() {
   const navItems = [
     { href: "/feed", label: "Fil d'actualité", icon: Home },
     { href: "/friends", label: "Amis", icon: Users },
-    { href: "/messages", label: "Messages", icon: MessageSquare },
+    {
+      href: "/messages",
+      label: "Messages",
+      icon: MessageSquare,
+      badge: unreadMessagesCount > 0 ? unreadMessagesCount : undefined,
+    },
   ];
 
   const handleConfirmLogout = () => {
@@ -74,7 +140,7 @@ export function Navbar() {
                     <Link
                       key={item.href}
                       href={item.href}
-                      className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
+                      className={`relative flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                         isActive
                           ? "bg-indigo-600/15 text-indigo-300 shadow-sm border border-indigo-500/30"
                           : "text-slate-400 hover:text-white hover:bg-slate-900/80"
@@ -82,6 +148,13 @@ export function Navbar() {
                     >
                       <Icon className={`h-4 w-4 ${isActive ? "text-indigo-400" : "text-slate-400"}`} />
                       {item.label}
+
+                      {/* Unread badge for Messages */}
+                      {item.badge !== undefined && (
+                        <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white shadow-md shadow-rose-500/30 animate-pulse">
+                          {item.badge}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
@@ -89,7 +162,7 @@ export function Navbar() {
             )}
           </div>
 
-          {/* Right Area: Status & User */}
+          {/* Right Area: Status, Notifications & User */}
           <div className="flex items-center gap-2 sm:gap-3">
             {/* Real-time Status Badge */}
             <div className="flex items-center gap-2 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-slate-900/90 border border-slate-800/80 shadow-inner">
@@ -117,6 +190,22 @@ export function Navbar() {
 
             {user ? (
               <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Notifications Bell Button */}
+                <button
+                  type="button"
+                  onClick={() => setNotificationsModalOpen(true)}
+                  className="relative p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-900 transition-colors border border-transparent hover:border-slate-800"
+                  title="Notifications"
+                >
+                  <Bell className="h-5 w-5" />
+                  {unreadNotifsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 min-w-4 px-1 items-center justify-center rounded-full bg-indigo-500 text-white text-[10px] font-bold shadow-md shadow-indigo-500/40 animate-pulse">
+                      {unreadNotifsCount > 99 ? "99+" : unreadNotifsCount}
+                    </span>
+                  )}
+                </button>
+
+                {/* Profile Link */}
                 <Link
                   href={`/profile/${user.username}`}
                   className="flex items-center gap-2 p-1 sm:pr-3 rounded-full hover:bg-slate-900 transition-colors border border-transparent hover:border-slate-800"
@@ -130,6 +219,7 @@ export function Navbar() {
                   </div>
                 </Link>
 
+                {/* Logout Button */}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -158,7 +248,7 @@ export function Navbar() {
         </div>
       </header>
 
-      {/* Mobile Bottom Navigation Bar (Floating Dock Style - Hidden on /messages for unobstructed full-screen chat) */}
+      {/* Mobile Bottom Navigation Bar (Hidden on /messages for full-screen chat) */}
       {user && pathname !== "/messages" && (
         <nav className="md:hidden fixed bottom-3 left-3 right-3 z-40 bg-slate-950/90 border border-slate-800/80 backdrop-blur-2xl px-3 py-2 rounded-2xl flex items-center justify-around shadow-2xl shadow-black/60">
           <Link
@@ -187,15 +277,38 @@ export function Navbar() {
 
           <Link
             href="/messages"
-            className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
+            className={`relative flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
               pathname === "/messages"
                 ? "text-indigo-300 font-bold bg-indigo-500/15"
                 : "text-slate-400 hover:text-white"
             }`}
           >
-            <MessageSquare className="h-5 w-5" />
+            <div className="relative">
+              <MessageSquare className="h-5 w-5" />
+              {unreadMessagesCount > 0 && (
+                <span className="absolute -top-1 -right-2 h-3.5 min-w-3.5 px-0.5 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {unreadMessagesCount}
+                </span>
+              )}
+            </div>
             <span className="text-[10px]">Chat</span>
           </Link>
+
+          <button
+            type="button"
+            onClick={() => setNotificationsModalOpen(true)}
+            className="relative flex flex-col items-center gap-1 py-1 px-3 rounded-xl text-slate-400 hover:text-white transition-all"
+          >
+            <div className="relative">
+              <Bell className="h-5 w-5" />
+              {unreadNotifsCount > 0 && (
+                <span className="absolute -top-1 -right-2 h-3.5 min-w-3.5 px-0.5 rounded-full bg-indigo-500 text-white text-[9px] font-bold flex items-center justify-center">
+                  {unreadNotifsCount}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px]">Notifs</span>
+          </button>
 
           <Link
             href={`/profile/${user.username}`}
@@ -210,6 +323,13 @@ export function Navbar() {
           </Link>
         </nav>
       )}
+
+      {/* Notifications Modal */}
+      <NotificationsModal
+        open={notificationsModalOpen}
+        onOpenChange={setNotificationsModalOpen}
+        onUnreadChange={setUnreadNotifsCount}
+      />
 
       {/* Logout Confirmation Dialog Modal */}
       <Dialog

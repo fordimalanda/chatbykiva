@@ -13,6 +13,8 @@ import {
   CommunityItem,
   SalonItem,
   SalonVisibility,
+  MessageAttachment,
+  getBackendUrl,
 } from "@/lib/api";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +23,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { KivaEventTicker } from "@/components/KivaEventTicker";
+import { VoiceMessagePlayer } from "@/components/VoiceMessagePlayer";
 import { formatTime } from "@/lib/utils";
 import {
   Send,
@@ -31,9 +34,7 @@ import {
   ArrowLeft,
   Home,
   Lock,
-  Eye,
   EyeOff,
-  Globe,
   Plus,
   Trash2,
   Settings,
@@ -41,12 +42,18 @@ import {
   AlertCircle,
   Bell,
   Check,
+  CheckCheck,
   X,
   UserPlus,
   Crown,
-  ChevronDown,
-  ChevronRight,
   ExternalLink,
+  Paperclip,
+  Mic,
+  Square,
+  Download,
+  FileText,
+  Image as ImageIcon,
+  Film,
 } from "lucide-react";
 
 function ChatInner() {
@@ -69,6 +76,17 @@ function ChatInner() {
   const [inputContent, setInputContent] = useState("");
   const [sending, setSending] = useState(false);
   const [searchFilter, setSearchFilter] = useState("");
+
+  // Media attachments & voice recording state
+  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Modals state: Community
   const [createCommunityOpen, setCreateCommunityOpen] = useState(false);
@@ -163,7 +181,7 @@ function ChatInner() {
     }).catch(console.error);
   }, [selectedCommunityId]);
 
-  // Load messages for current active target (salon or DM)
+  // Load messages for current active target & mark as read
   useEffect(() => {
     if (!user) return;
     api
@@ -173,6 +191,17 @@ function ChatInner() {
         setTimeout(scrollToBottom, 100);
       })
       .catch(console.error);
+
+    // If it's a direct message partner, explicitly mark messages as read
+    const isChannelTarget =
+      activePartner === "all" ||
+      activePartner === "general" ||
+      activePartner.startsWith("s-") ||
+      activePartner.startsWith("comm-");
+
+    if (!isChannelTarget) {
+      api.markMessagesAsRead(activePartner).catch(console.error);
+    }
   }, [user, activePartner]);
 
   // Real-time synchronization
@@ -199,9 +228,29 @@ function ChatInner() {
           return [...prev, newMsg];
         });
         setTimeout(scrollToBottom, 50);
+
+        // If I received a direct message in the active window, mark it as read immediately!
+        if (msgFrom === partner && msgTo === current) {
+          api.markMessagesAsRead(partner).catch(console.error);
+        }
       }
 
       api.getConversations().then(setConversations).catch(console.error);
+    };
+
+    // Live Read Receipts: when recipient views my message, turn checkmarks blue!
+    const handleMessageRead = ({ reader, partner, messageIds }: any) => {
+      const current = (user.username || "").toLowerCase();
+      if (partner?.toLowerCase() === current) {
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (messageIds?.includes(m.id) || (m.from.toLowerCase() === current && m.to.toLowerCase() === reader.toLowerCase())) {
+              return { ...m, read: true, readAt: Date.now() };
+            }
+            return m;
+          })
+        );
+      }
     };
 
     const handleCommunityUpdate = () => {
@@ -218,6 +267,7 @@ function ChatInner() {
 
     socket.on("message:new", handleNewMessage);
     socket.on("message:direct", handleNewMessage);
+    socket.on("message:read", handleMessageRead);
     socket.on("community:new", handleCommunityUpdate);
     socket.on("community:updated", handleCommunityUpdate);
     socket.on("community:deleted", handleCommunityUpdate);
@@ -228,6 +278,7 @@ function ChatInner() {
     return () => {
       socket.off("message:new", handleNewMessage);
       socket.off("message:direct", handleNewMessage);
+      socket.off("message:read", handleMessageRead);
       socket.off("community:new", handleCommunityUpdate);
       socket.off("community:updated", handleCommunityUpdate);
       socket.off("community:deleted", handleCommunityUpdate);
@@ -259,11 +310,6 @@ function ChatInner() {
   const isCommCreator =
     user && currentComm && currentComm.creator.toLowerCase() === user.username.toLowerCase();
 
-  const isCommMember =
-    user &&
-    currentComm &&
-    (currentComm.members || []).map((m) => m.toLowerCase()).includes(user.username.toLowerCase());
-
   // Permissions for active salon
   const isSalonAdmin =
     user &&
@@ -279,13 +325,119 @@ function ChatInner() {
       c.pendingInvites.map((u) => u.toLowerCase()).includes(user.username.toLowerCase())
   );
 
+  // Voice recording handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.start(200);
+      setIsRecording(true);
+      setRecordingSeconds(0);
+
+      recordingTimerRef.current = setInterval(() => {
+        setRecordingSeconds((prev) => prev + 1);
+      }, 1000);
+    } catch (err: any) {
+      alert("Accès au microphone requis pour enregistrer un message vocal : " + err.message);
+    }
+  };
+
+  const cancelRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+      mediaRecorderRef.current.stream.getTracks().forEach((track) => track.stop());
+    }
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    setIsRecording(false);
+    setRecordingSeconds(0);
+    audioChunksRef.current = [];
+  };
+
+  const stopAndSendRecording = async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") return;
+
+    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+    const duration = recordingSeconds;
+
+    recorder.onstop = async () => {
+      recorder.stream.getTracks().forEach((track) => track.stop());
+      const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      setIsRecording(false);
+      setRecordingSeconds(0);
+      audioChunksRef.current = [];
+
+      try {
+        setSending(true);
+        const uploaded = await api.uploadFile(audioBlob, `vocal_${Date.now()}.webm`);
+        uploaded.duration = duration;
+
+        const sent = await api.sendMessage({
+          to: activePartner,
+          content: "",
+          attachments: [uploaded],
+        });
+
+        if (sent && sent.id) {
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === sent.id)) return prev;
+            return [...prev, sent];
+          });
+          setTimeout(scrollToBottom, 50);
+        }
+      } catch (err: any) {
+        alert("Erreur lors de l'envoi du message vocal : " + err.message);
+      } finally {
+        setSending(false);
+      }
+    };
+
+    recorder.stop();
+  };
+
+  // File selection for photos, videos, documents
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingAttachment(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const uploaded = await api.uploadFile(file);
+        setPendingAttachments((prev) => [...prev, uploaded]);
+      }
+    } catch (err: any) {
+      alert("Erreur d'upload : " + err.message);
+    } finally {
+      setUploadingAttachment(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const removePendingAttachment = (index: number) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
+  };
+
   // Send message
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputContent.trim() || sending || !user) return;
+    if ((!inputContent.trim() && pendingAttachments.length === 0) || sending || !user) return;
 
     const text = inputContent.trim();
+    const attachmentsToSend = [...pendingAttachments];
+
     setInputContent("");
+    setPendingAttachments([]);
     setMentionQuery(null);
     setSending(true);
 
@@ -293,6 +445,7 @@ function ChatInner() {
       const sent = await api.sendMessage({
         to: activePartner,
         content: text,
+        attachments: attachmentsToSend,
       });
 
       if (sent && sent.id) {
@@ -316,7 +469,6 @@ function ChatInner() {
     const val = e.target.value;
     setInputContent(val);
 
-    // Ne déclencher les suggestions @ QUE dans les salons, JAMAIS dans les DMs
     if (!isSalon) {
       setMentionQuery(null);
       setMentionStartIndex(-1);
@@ -361,7 +513,6 @@ function ChatInner() {
     setMobileView("chat");
   };
 
-  // Salon selection with permission check for visible_private
   const handleSelectSalon = (salon: SalonItem) => {
     const isMemberOfSalon =
       user &&
@@ -477,7 +628,6 @@ function ChatInner() {
     }
   };
 
-  // Direct addition of community member to salon (NO invitation needed because user is already in community!)
   const handleAddMemberToSalon = async () => {
     if (!selectedSalon || !addMemberInput.trim()) return;
     try {
@@ -492,7 +642,6 @@ function ChatInner() {
     }
   };
 
-  // Request join visible_private salon
   const handleSendJoinRequest = async (salon: SalonItem) => {
     try {
       await api.requestJoinSalon(salon.communityId, salon.id);
@@ -505,7 +654,6 @@ function ChatInner() {
     }
   };
 
-  // Approve / Decline salon join request
   const handleRespondSalonJoin = async (targetUsername: string, approve: boolean) => {
     if (!selectedSalon) return;
     try {
@@ -590,7 +738,7 @@ function ChatInner() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-10rem)] min-h-[500px]">
-        {/* Left Sidebar: Communities, Salons & Direct Chats */}
+        {/* Left Sidebar */}
         <Card
           className={`lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
             mobileView === "chat" ? "hidden lg:flex" : "flex"
@@ -617,7 +765,7 @@ function ChatInner() {
               </Badge>
             </div>
 
-            {/* Community Switcher Dropdown */}
+            {/* Community Switcher */}
             <div className="flex items-center gap-1.5 bg-slate-950/60 p-1.5 rounded-xl border border-slate-800/80">
               <div className="flex-1 min-w-0">
                 <select
@@ -770,7 +918,7 @@ function ChatInner() {
                           </div>
                         </div>
 
-                        {/* Admin settings for salon */}
+                        {/* Admin settings */}
                         {isCommAdmin && (
                           <button
                             onClick={(e) => {
@@ -790,7 +938,7 @@ function ChatInner() {
               </div>
             </div>
 
-            {/* Direct Messages Section */}
+            {/* Direct Messages Section with Unread Counter Badges */}
             <div className="pt-2">
               <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                 <Users className="h-3.5 w-3.5 text-indigo-400" />
@@ -809,6 +957,7 @@ function ChatInner() {
                   .map((item) => {
                     const isActive = activePartner === item.username;
                     const convo = conversations.find((c) => c.withUser === item.username);
+                    const unreadCount = convo?.unreadCount || 0;
 
                     return (
                       <button
@@ -820,19 +969,32 @@ function ChatInner() {
                             : "hover:bg-slate-800/50 text-slate-300"
                         }`}
                       >
-                        <Avatar src={item.avatar} fallback={item.username} size="sm" />
+                        <div className="relative shrink-0">
+                          <Avatar src={item.avatar} fallback={item.username} size="sm" />
+                          {unreadCount > 0 && (
+                            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900" />
+                          )}
+                        </div>
+
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between">
                             <span className="font-semibold text-xs sm:text-sm text-white truncate">
                               {item.displayName || item.username}
                             </span>
-                            {convo && (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                {formatTime(convo.lastTimestamp)}
-                              </span>
-                            )}
+                            <div className="flex items-center gap-1.5">
+                              {convo && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {formatTime(convo.lastTimestamp)}
+                                </span>
+                              )}
+                              {unreadCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-rose-500 text-white shadow-sm shadow-rose-500/40">
+                                  {unreadCount}
+                                </span>
+                              )}
+                            </div>
                           </div>
-                          <p className="text-[11px] text-slate-400 truncate">
+                          <p className={`text-[11px] truncate ${unreadCount > 0 ? "text-indigo-300 font-medium" : "text-slate-400"}`}>
                             {convo ? convo.lastMessage : `@${item.username}`}
                           </p>
                         </div>
@@ -1005,7 +1167,7 @@ function ChatInner() {
                           : "bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none"
                       }`}
                     >
-                      {/* Full Name & @Username (BOTH CLICKABLE TO PROFILE!) */}
+                      {/* Full Name & @Username */}
                       <div className="flex items-center justify-between gap-2 mb-1">
                         <Link
                           href={`/profile/${m.from}`}
@@ -1034,12 +1196,118 @@ function ChatInner() {
                         )}
                       </div>
 
-                      <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
-                        {renderMessageContent(m.content, isSentByMe)}
-                      </p>
+                      {/* Text Content */}
+                      {m.content && (
+                        <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
+                          {renderMessageContent(m.content, isSentByMe)}
+                        </p>
+                      )}
 
+                      {/* Media Attachments: Photos, Videos, Voice, Documents */}
+                      {m.attachments && m.attachments.length > 0 && (
+                        <div className="space-y-2 my-1.5">
+                          {m.attachments.map((att, idx) => {
+                            const fullUrl = att.url.startsWith("http") ? att.url : `${getBackendUrl()}${att.url}`;
+
+                            if (att.type === "image") {
+                              return (
+                                <div key={idx} className="relative group max-w-xs sm:max-w-sm rounded-xl overflow-hidden border border-white/10 shadow-lg">
+                                  <img
+                                    src={fullUrl}
+                                    alt={att.name}
+                                    className="max-h-64 sm:max-h-72 w-auto object-cover rounded-xl"
+                                  />
+                                  <a
+                                    href={fullUrl}
+                                    download={att.name}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                  >
+                                    <Download className="h-3 w-3" />
+                                    Télécharger
+                                  </a>
+                                </div>
+                              );
+                            }
+
+                            if (att.type === "video") {
+                              return (
+                                <div key={idx} className="max-w-xs sm:max-w-sm rounded-xl overflow-hidden border border-white/10 space-y-1 shadow-lg">
+                                  <video
+                                    src={fullUrl}
+                                    controls
+                                    preload="metadata"
+                                    className="max-h-64 sm:max-h-72 w-full rounded-xl bg-black/50"
+                                  />
+                                  <div className="flex justify-end pr-1 pb-1">
+                                    <a
+                                      href={fullUrl}
+                                      download={att.name}
+                                      className="text-[10px] text-indigo-300 hover:text-white flex items-center gap-1"
+                                    >
+                                      <Download className="h-3 w-3" />
+                                      Télécharger la vidéo
+                                    </a>
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            if (att.type === "audio") {
+                              return (
+                                <VoiceMessagePlayer
+                                  key={idx}
+                                  url={att.url}
+                                  duration={att.duration}
+                                  isSentByMe={isSentByMe}
+                                />
+                              );
+                            }
+
+                            // Document attachment
+                            return (
+                              <a
+                                key={idx}
+                                href={fullUrl}
+                                download={att.name}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex items-center gap-2.5 p-2 rounded-xl bg-black/25 hover:bg-black/40 border border-white/10 transition-colors group"
+                              >
+                                <div className="h-8 w-8 rounded-lg bg-indigo-500/20 text-indigo-300 flex items-center justify-center shrink-0">
+                                  <FileText className="h-4 w-4" />
+                                </div>
+                                <div className="flex-1 min-w-0 text-left">
+                                  <p className="text-xs font-semibold text-white truncate group-hover:underline">
+                                    {att.name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-400">
+                                    {att.size ? `${(att.size / 1024 / 1024).toFixed(1)} Mo` : "Document"}
+                                  </p>
+                                </div>
+                                <Download className="h-4 w-4 text-slate-400 group-hover:text-white shrink-0" />
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* Footer: Timestamp & WhatsApp Read Receipts (Single gray tick vs Double blue ticks!) */}
                       <div className="flex items-center justify-end gap-1.5 mt-1 text-[9px] sm:text-[10px] text-slate-300/80 font-mono">
                         <span>{formatTime(m.timestamp)}</span>
+                        {isSentByMe && (
+                          <span
+                            className="flex items-center ml-0.5"
+                            title={m.read ? "Lu (vu)" : "Envoyé (non lu)"}
+                          >
+                            {m.read ? (
+                              <CheckCheck className="h-3.5 w-3.5 text-sky-400 font-bold" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5 text-slate-400" />
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1048,6 +1316,34 @@ function ChatInner() {
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          {/* Pending Attachments Preview Chips */}
+          {pendingAttachments.length > 0 && (
+            <div className="px-3 py-2 bg-slate-900 border-t border-slate-800 flex items-center gap-2 overflow-x-auto">
+              {pendingAttachments.map((att, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-xs text-white border border-slate-700 shrink-0"
+                >
+                  {att.type === "image" ? (
+                    <ImageIcon className="h-3.5 w-3.5 text-indigo-400" />
+                  ) : att.type === "video" ? (
+                    <Film className="h-3.5 w-3.5 text-purple-400" />
+                  ) : (
+                    <FileText className="h-3.5 w-3.5 text-emerald-400" />
+                  )}
+                  <span className="max-w-[120px] truncate">{att.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => removePendingAttachment(idx)}
+                    className="p-0.5 hover:text-rose-400 transition-colors ml-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* @ Mention Suggestions Popup (SALONS ONLY!) */}
           {isSalon && mentionQuery !== null && mentionSuggestions.length > 0 && (
@@ -1073,54 +1369,124 @@ function ChatInner() {
             </div>
           )}
 
-          {/* Input Footer */}
-          <form
-            onSubmit={handleSend}
-            className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-2"
-          >
-            <div className="relative flex-1">
-              <Input
-                ref={inputRef}
-                type="text"
-                placeholder={
-                  isSalon
-                    ? `Écrire dans #${activeSalon?.name}... Tapez @ pour mentionner`
-                    : `Écrire à ${currentDirectUser?.displayName || activePartner}...`
-                }
-                value={inputContent}
-                onChange={handleInputChange}
-                className={`w-full bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80 ${
-                  isSalon ? "pr-8" : "pr-3"
-                }`}
-                autoFocus
-              />
-              {/* @ Mention button: VISIBLE ONLY IN SALONS, HIDDEN IN DIRECT MESSAGES! */}
-              {isSalon && (
-                <button
+          {/* Hidden File Input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileSelect}
+            className="hidden"
+            multiple
+            accept="image/*,video/*,.pdf,.doc,.docx,.txt"
+          />
+
+          {/* Input Footer: Voice Recording Bar OR Normal Input */}
+          {isRecording ? (
+            <div className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/90 flex items-center justify-between gap-3 animate-in fade-in">
+              <div className="flex items-center gap-2.5">
+                <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping" />
+                <span className="text-xs font-bold text-rose-400 font-mono">
+                  Enregistrement vocal : {Math.floor(recordingSeconds / 60)}:
+                  {recordingSeconds % 60 < 10 ? "0" : ""}
+                  {recordingSeconds % 60}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
                   type="button"
-                  onClick={() => {
-                    setInputContent((prev) => prev + "@");
-                    setMentionQuery("");
-                    setMentionStartIndex(inputContent.length);
-                    inputRef.current?.focus();
-                  }}
-                  className="absolute right-2.5 top-2.5 text-slate-400 hover:text-indigo-300"
-                  title="Mentionner avec @"
+                  size="sm"
+                  variant="ghost"
+                  onClick={cancelRecording}
+                  className="text-xs text-slate-400 hover:text-rose-400 gap-1 h-8 px-2.5"
                 >
-                  <AtSign className="h-4 w-4" />
-                </button>
-              )}
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Annuler
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={stopAndSendRecording}
+                  isLoading={sending}
+                  className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 h-8 px-3"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  Envoyer le vocal
+                </Button>
+              </div>
             </div>
-            <Button
-              type="submit"
-              size="default"
-              className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3.5 sm:px-4 text-xs sm:text-sm shadow-md shadow-indigo-500/20"
-              isLoading={sending}
+          ) : (
+            <form
+              onSubmit={handleSend}
+              className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-1.5 sm:gap-2"
             >
-              <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Envoyer</span>
-            </Button>
-          </form>
+              {/* Attachment Picker Button */}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadingAttachment}
+                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0"
+                title="Joindre une photo, vidéo ou document"
+              >
+                <Paperclip className="h-4 w-4 sm:h-5 sm:w-5" />
+              </button>
+
+              {/* Text Input */}
+              <div className="relative flex-1">
+                <Input
+                  ref={inputRef}
+                  type="text"
+                  placeholder={
+                    isSalon
+                      ? `Écrire dans #${activeSalon?.name}... Tapez @ pour mentionner`
+                      : `Écrire à ${currentDirectUser?.displayName || activePartner}...`
+                  }
+                  value={inputContent}
+                  onChange={handleInputChange}
+                  className={`w-full bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80 ${
+                    isSalon ? "pr-8" : "pr-3"
+                  }`}
+                  autoFocus
+                />
+                {/* @ Mention button: VISIBLE ONLY IN SALONS! */}
+                {isSalon && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInputContent((prev) => prev + "@");
+                      setMentionQuery("");
+                      setMentionStartIndex(inputContent.length);
+                      inputRef.current?.focus();
+                    }}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-indigo-300"
+                    title="Mentionner avec @"
+                  >
+                    <AtSign className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* Voice Message Mic Button */}
+              <button
+                type="button"
+                onClick={startRecording}
+                className="p-2 rounded-xl text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors shrink-0"
+                title="Enregistrer un message vocal"
+              >
+                <Mic className="h-4 w-4 sm:h-5 sm:w-5" />
+              </button>
+
+              {/* Send Button */}
+              <Button
+                type="submit"
+                size="default"
+                disabled={!inputContent.trim() && pendingAttachments.length === 0}
+                className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3.5 sm:px-4 text-xs sm:text-sm shadow-md shadow-indigo-500/20"
+                isLoading={sending}
+              >
+                <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Envoyer</span>
+              </Button>
+            </form>
+          )}
         </Card>
       </div>
 
@@ -1288,7 +1654,7 @@ function ChatInner() {
               </div>
             </div>
 
-            {/* Liste des membres et promotion Admin */}
+            {/* Liste des membres */}
             <div className="space-y-2">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
                 Membres de la communauté ({selectedComm.members?.length || 0})
@@ -1336,7 +1702,7 @@ function ChatInner() {
               </div>
             </div>
 
-            {/* Supprimer la communauté (Creator only) */}
+            {/* Supprimer la communauté */}
             {isCommCreator && selectedComm.id !== "comm-general" && (
               <div className="pt-2 border-t border-slate-800">
                 <Button
@@ -1460,7 +1826,7 @@ function ChatInner() {
         </form>
       </Dialog>
 
-      {/* Modal: Gérer le Salon (Droits Administrateur) */}
+      {/* Modal: Gérer le Salon */}
       {selectedSalon && (
         <Dialog
           open={salonSettingsOpen}
@@ -1499,7 +1865,7 @@ function ChatInner() {
               </div>
             </div>
 
-            {/* Ajouter directement un membre de la communauté (SANS INVITATION) */}
+            {/* Ajouter directement un membre */}
             <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/70 space-y-2">
               <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
                 <UserPlus className="h-4 w-4 text-emerald-400" />
@@ -1529,7 +1895,7 @@ function ChatInner() {
               </div>
             </div>
 
-            {/* Demandes d'adhésion en attente (visible_private) */}
+            {/* Demandes d'adhésion en attente */}
             {selectedSalon.visibility === "visible_private" && (
               <div className="space-y-2">
                 <h4 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">

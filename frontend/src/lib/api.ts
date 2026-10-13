@@ -24,6 +24,15 @@ export interface UserProfile extends UserSummaryItem {
   followsYou?: boolean;
 }
 
+export interface MessageAttachment {
+  type: 'image' | 'video' | 'audio' | 'document';
+  url: string;
+  name: string;
+  size?: number;
+  mimeType?: string;
+  duration?: number;
+}
+
 export interface ChatMessage {
   id: string;
   from: string;
@@ -31,8 +40,25 @@ export interface ChatMessage {
   fromAvatar?: string;
   to: string;
   content: string;
+  attachments?: MessageAttachment[];
   mentions?: string[];
+  read?: boolean;
+  readAt?: number;
   timestamp: number;
+}
+
+export interface NotificationItem {
+  id: string;
+  toUser: string;
+  fromUser: string;
+  fromDisplayName?: string;
+  fromAvatar?: string;
+  type: 'mention' | 'message' | 'invite' | 'like' | 'follow' | 'join_request';
+  title: string;
+  message: string;
+  link?: string;
+  read: boolean;
+  createdAt: number;
 }
 
 export interface ChannelItem {
@@ -90,6 +116,7 @@ export interface ConversationSummary {
   lastMessage: string;
   lastTimestamp: number;
   messageCount: number;
+  unreadCount?: number;
 }
 
 class ApiService {
@@ -138,15 +165,12 @@ class ApiService {
   }
 
   async logoutSession(): Promise<void> {
-    // Appelle POST /auth/logout pour supprimer la session de KivaDB
     try {
       await fetch(`${getBackendUrl()}/auth/logout`, {
         method: 'POST',
         headers: this.getHeaders(),
       });
-    } catch {
-      // Silencieux : la déconnexion locale se fait de toute façon
-    }
+    } catch {}
   }
 
   async getUsers(): Promise<UserSummaryItem[]> {
@@ -176,7 +200,7 @@ class ApiService {
     return json;
   }
 
-  async sendMessage(data: { to?: string; content: string }): Promise<ChatMessage> {
+  async sendMessage(data: { to?: string; content?: string; attachments?: MessageAttachment[] }): Promise<ChatMessage> {
     const res = await fetch(`${getBackendUrl()}/messages`, {
       method: "POST",
       headers: this.getHeaders(),
@@ -463,6 +487,94 @@ class ApiService {
     const json = await res.json();
     if (!res.ok) throw new Error(json.message || "Erreur de traitement de la demande");
     return json;
+  }
+
+  // ==========================================
+  // MEDIA UPLOADS
+  // ==========================================
+
+  async uploadFile(file: File | Blob, customName?: string): Promise<MessageAttachment> {
+    const formData = new FormData();
+    const filename = customName || (file instanceof File ? file.name : `voice_${Date.now()}.webm`);
+    formData.append("file", file, filename);
+
+    const headers: Record<string, string> = {};
+    if (typeof window !== "undefined") {
+      const token = localStorage.getItem("kiva_token");
+      const user = localStorage.getItem("kiva_user");
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+      if (user) {
+        try {
+          const parsed = JSON.parse(user);
+          if (parsed?.username) headers["x-user"] = parsed.username;
+        } catch {}
+      }
+    }
+
+    const res = await fetch(`${getBackendUrl()}/uploads`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur lors de l'upload du fichier");
+    return json;
+  }
+
+  // ==========================================
+  // NOTIFICATIONS & UNREAD COUNTS
+  // ==========================================
+
+  async getNotifications(): Promise<NotificationItem[]> {
+    const res = await fetch(`${getBackendUrl()}/notifications`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async getUnreadNotificationsCount(): Promise<number> {
+    const res = await fetch(`${getBackendUrl()}/notifications/unread-count`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return 0;
+    const json = await res.json();
+    return json.count || 0;
+  }
+
+  async markNotificationAsRead(id: string): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/notifications/${encodeURIComponent(id)}/read`, {
+      method: "POST",
+      headers: this.getHeaders(),
+    });
+    return res.ok;
+  }
+
+  async markAllNotificationsAsRead(): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/notifications/read-all`, {
+      method: "POST",
+      headers: this.getHeaders(),
+    });
+    return res.ok;
+  }
+
+  async getUnreadMessagesCount(): Promise<number> {
+    const res = await fetch(`${getBackendUrl()}/messages/unread-count`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return 0;
+    const json = await res.json();
+    return json.count || 0;
+  }
+
+  async markMessagesAsRead(withUser: string): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/messages/read`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ withUser }),
+    });
+    return res.ok;
   }
 }
 

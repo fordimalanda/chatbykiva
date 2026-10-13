@@ -7,6 +7,8 @@ import { EventsModule } from './events/events.module';
 import { PostsModule } from './posts/posts.module';
 import { ChannelsModule } from './channels/channels.module';
 import { CommunitiesModule } from './communities/communities.module';
+import { NotificationsModule } from './notifications/notifications.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -18,6 +20,8 @@ import { CommunitiesModule } from './communities/communities.module';
     PostsModule,
     ChannelsModule,
     CommunitiesModule,
+    NotificationsModule,
+    UploadsModule,
   ],
 })
 export class AppModule {}

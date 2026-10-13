@@ -1,11 +1,22 @@
-import { Controller, Post, Get, Body, Query, Headers, BadRequestException, Inject, forwardRef } from '@nestjs/common';
-import { MessagesService } from './messages.service';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Query,
+  Headers,
+  BadRequestException,
+  Inject,
+  forwardRef,
+} from '@nestjs/common';
+import { MessagesService, MessageAttachment } from './messages.service';
 import { AuthService } from '../auth/auth.service';
 import { EventsGateway } from '../events/events.gateway';
 
 export class CreateMessageDto {
   to?: string;
-  content: string;
+  content?: string;
+  attachments?: MessageAttachment[];
 }
 
 @Controller('messages')
@@ -37,7 +48,12 @@ export class MessagesController {
     if (!current) {
       throw new BadRequestException('Vous devez être connecté pour envoyer un message.');
     }
-    const msg = await this.messagesService.createMessage(current, dto.to || 'all', dto.content);
+    const msg = await this.messagesService.createMessage(
+      current,
+      dto.to || 'all',
+      dto.content || '',
+      dto.attachments
+    );
     this.eventsGateway.broadcastMessage(msg);
     return msg;
   }
@@ -50,6 +66,29 @@ export class MessagesController {
   ) {
     const current = this.extractUsername(authHeader, xUser);
     return this.messagesService.getMessages(current, withUser);
+  }
+
+  @Get('unread-count')
+  async getUnreadCount(
+    @Headers('authorization') authHeader?: string,
+    @Headers('x-user') xUser?: string,
+  ) {
+    const current = this.extractUsername(authHeader, xUser);
+    if (!current) return { count: 0 };
+    return this.messagesService.getUnreadDirectMessagesCount(current);
+  }
+
+  @Post('read')
+  async markRead(
+    @Body() body: { withUser: string },
+    @Headers('authorization') authHeader?: string,
+    @Headers('x-user') xUser?: string,
+  ) {
+    const current = this.extractUsername(authHeader, xUser);
+    if (!current) throw new BadRequestException('Vous devez être connecté.');
+    if (!body?.withUser) throw new BadRequestException('withUser requis.');
+    const updatedCount = await this.messagesService.markMessagesAsRead(current, body.withUser);
+    return { success: true, count: updatedCount };
   }
 
   @Get('conversations')
