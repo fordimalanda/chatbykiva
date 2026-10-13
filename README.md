@@ -54,7 +54,6 @@ Ce projet illustre 4 points forts majeurs de KivaDB :
 
 ```text
 chatbykiva/
-├── DOCUMENTATION.md           # Documentation officielle de référence KivaDB
 ├── README.md                  # Présentation du projet démonstrateur
 ├── .gitignore                 # Fichiers exclus du versionnement
 ├── package.json               # Commandes globales du monorepo
