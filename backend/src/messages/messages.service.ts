@@ -41,9 +41,7 @@ export class MessagesService {
 
   constructor(
     private readonly kivaService: KivaService,
-    @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
-    @Inject(forwardRef(() => NotificationsService))
     private readonly notificationsService: NotificationsService,
   ) {}
 

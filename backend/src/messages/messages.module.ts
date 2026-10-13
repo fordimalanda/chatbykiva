@@ -1,4 +1,4 @@
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { MessagesController } from './messages.controller';
 import { AuthModule } from '../auth/auth.module';
@@ -6,7 +6,7 @@ import { EventsModule } from '../events/events.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [AuthModule, forwardRef(() => EventsModule), forwardRef(() => NotificationsModule)],
+  imports: [AuthModule, EventsModule, NotificationsModule],
   controllers: [MessagesController],
   providers: [MessagesService],
   exports: [MessagesService],

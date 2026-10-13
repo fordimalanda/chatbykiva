@@ -11,7 +11,7 @@ import { Server, Socket } from 'socket.io';
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { KivaService, KivaEvent } from '../kiva/kiva.service';
 import { UserDocument } from '../auth/auth.service';
-import { ChatMessage, MessagesService } from '../messages/messages.service';
+import { ChatMessage } from '../messages/messages.service';
 
 @WebSocketGateway({
   cors: {
@@ -25,10 +25,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
 
   private readonly logger = new Logger(EventsGateway.name);
 
-  constructor(
-    private readonly kivaService: KivaService,
-    private readonly messagesService: MessagesService,
-  ) {}
+  constructor(private readonly kivaService: KivaService) {}
 
   onModuleInit() {
     // Bridge real-time events coming directly from KivaDB WebSocket
@@ -56,16 +53,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
   }
 
   @SubscribeMessage('send_message')
-  async handleSocketSendMessage(
+  handleSocketSendMessage(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: { from: string; to: string; content: string },
+    @MessageBody() payload: ChatMessage,
   ) {
-    if (!payload?.from || !payload?.content) {
-      return { error: 'Invalid payload' };
+    if (payload && payload.content) {
+      this.broadcastMessage(payload);
+      return { status: 'ok', msg: payload };
     }
-    const msg = await this.messagesService.createMessage(payload.from, payload.to || 'all', payload.content);
-    this.broadcastMessage(msg);
-    return { status: 'ok', msg };
+    return { error: 'Invalid payload' };
   }
 
   public broadcastMessage(msg: ChatMessage) {

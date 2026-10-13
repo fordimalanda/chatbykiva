@@ -24,7 +24,6 @@ export class MessagesController {
   constructor(
     private readonly messagesService: MessagesService,
     private readonly authService: AuthService,
-    @Inject(forwardRef(() => EventsGateway))
     private readonly eventsGateway: EventsGateway,
   ) {}
 
