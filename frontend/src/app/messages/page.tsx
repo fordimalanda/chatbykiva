@@ -328,7 +328,39 @@ function ChatInner() {
   // Voice recording handlers
   const startRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Polyfill: some old mobile browsers expose getUserMedia on navigator directly
+      const getUserMedia =
+        navigator.mediaDevices?.getUserMedia?.bind(navigator.mediaDevices) ||
+        (navigator as any).getUserMedia?.bind(navigator) ||
+        (navigator as any).webkitGetUserMedia?.bind(navigator) ||
+        (navigator as any).mozGetUserMedia?.bind(navigator);
+
+      if (!getUserMedia) {
+        const isHttp = window.location.protocol === "http:";
+        if (isHttp) {
+          alert(
+            "L'enregistrement vocal nécessite une connexion sécurisée (HTTPS). " +
+            "Veuillez accéder au site via HTTPS ou depuis localhost."
+          );
+        } else {
+          alert(
+            "Votre navigateur ne supporte pas l'enregistrement audio. " +
+            "Essayez Chrome ou Firefox sur Android, ou Safari sur iOS 14.3+."
+          );
+        }
+        return;
+      }
+
+      let stream: MediaStream;
+      if (navigator.mediaDevices?.getUserMedia) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } else {
+        // Legacy callback-based API
+        stream = await new Promise<MediaStream>((resolve, reject) => {
+          getUserMedia({ audio: true }, resolve, reject);
+        });
+      }
+
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
