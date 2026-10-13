@@ -1,6 +1,7 @@
-import { Controller, Post, Get, Body, Query, Headers, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Body, Query, Headers, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { MessagesService } from './messages.service';
 import { AuthService } from '../auth/auth.service';
+import { EventsGateway } from '../events/events.gateway';
 
 export class CreateMessageDto {
   to?: string;
@@ -12,6 +13,8 @@ export class MessagesController {
   constructor(
     private readonly messagesService: MessagesService,
     private readonly authService: AuthService,
+    @Inject(forwardRef(() => EventsGateway))
+    private readonly eventsGateway: EventsGateway,
   ) {}
 
   private extractUsername(authHeader?: string, xUserHeader?: string): string | undefined {
@@ -34,7 +37,9 @@ export class MessagesController {
     if (!current) {
       throw new BadRequestException('Vous devez être connecté pour envoyer un message.');
     }
-    return this.messagesService.createMessage(current, dto.to || 'all', dto.content);
+    const msg = await this.messagesService.createMessage(current, dto.to || 'all', dto.content);
+    this.eventsGateway.broadcastMessage(msg);
+    return msg;
   }
 
   @Get()

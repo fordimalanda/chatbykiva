@@ -24,6 +24,8 @@ import {
   ExternalLink,
   Shield,
   ArrowLeft,
+  Home,
+  Lock,
 } from "lucide-react";
 
 function ChatInner() {
@@ -59,7 +61,7 @@ function ChatInner() {
   // Load messages for current conversation
   useEffect(() => {
     if (!user) return;
-    const partner = activePartner === "all" ? undefined : activePartner;
+    const partner = activePartner === "all" ? "all" : activePartner;
     api
       .getMessages(partner)
       .then((data) => {
@@ -74,14 +76,19 @@ function ChatInner() {
     if (!socket || !user) return;
 
     const handleNewMessage = (newMsg: ChatMessage) => {
-      // Check if message belongs to current chat
-      const isRelevant =
-        (activePartner === "all" && newMsg.to === "all") ||
-        (activePartner !== "all" &&
-          ((newMsg.from === user.username && newMsg.to === activePartner) ||
-            (newMsg.from === activePartner && newMsg.to === user.username)));
+      const msgTo = (newMsg.to || "").toLowerCase();
+      const msgFrom = (newMsg.from || "").toLowerCase();
+      const current = (user.username || "").toLowerCase();
+      const partner = (activePartner || "").toLowerCase();
 
-      if (isRelevant) {
+      // Check if message belongs to current active window
+      const isPublicSalon = partner === "all" && msgTo === "all";
+      const isDirectWithPartner =
+        partner !== "all" &&
+        ((msgFrom === current && msgTo === partner) ||
+          (msgFrom === partner && msgTo === current));
+
+      if (isPublicSalon || isDirectWithPartner) {
         setMessages((prev) => {
           if (prev.some((m) => m.id === newMsg.id)) return prev;
           return [...prev, newMsg];
@@ -111,10 +118,21 @@ function ChatInner() {
     setSending(true);
 
     try {
-      await api.sendMessage({
+      const sent = await api.sendMessage({
         to: activePartner,
         content: text,
       });
+
+      // Immediate local state append so user sees it with zero latency
+      if (sent && sent.id) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === sent.id)) return prev;
+          return [...prev, sent];
+        });
+        setTimeout(scrollToBottom, 50);
+      }
+
+      api.getConversations().then(setConversations).catch(console.error);
     } catch (err: any) {
       alert(err.message || "Erreur d'envoi");
     } finally {
@@ -136,10 +154,13 @@ function ChatInner() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 space-y-4">
-      <KivaEventTicker />
+    <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-2 sm:py-5 space-y-3">
+      {/* Ticker (hidden on phone in chat view to maximize space) */}
+      <div className={mobileView === "chat" ? "hidden sm:block" : "block"}>
+        <KivaEventTicker />
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100dvh-12rem)] md:h-[calc(100vh-11rem)] min-h-[480px]">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-10rem)] min-h-[480px]">
         {/* Left Sidebar: Conversations & Contacts */}
         <Card
           className={`lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
@@ -147,12 +168,21 @@ function ChatInner() {
           }`}
         >
           {/* Header */}
-          <div className="p-3.5 sm:p-4 border-b border-slate-800/80 bg-slate-900/60">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                <MessageSquare className="h-4 w-4 text-indigo-400" />
-                Messagerie Instantanée
-              </h2>
+          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70">
+            <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center gap-2">
+                <Link
+                  href="/feed"
+                  className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  title="Retour au fil d'actualité"
+                >
+                  <Home className="h-4 w-4" />
+                </Link>
+                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-indigo-400" />
+                  Messagerie
+                </h2>
+              </div>
               <Badge variant={connected ? "live" : "secondary"}>
                 {connected ? "KivaDB WS" : "Hors-ligne"}
               </Badge>
@@ -163,9 +193,9 @@ function ChatInner() {
                 placeholder="Chercher un contact..."
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
-                className="h-9 pl-8 text-xs"
+                className="h-8 sm:h-9 pl-8 text-xs bg-slate-950/70"
               />
-              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-3 pointer-events-none" />
+              <Search className="h-3.5 w-3.5 text-slate-400 absolute left-2.5 top-2.5 sm:top-3 pointer-events-none" />
             </div>
           </div>
 
@@ -191,13 +221,14 @@ function ChatInner() {
                   </Badge>
                 </div>
                 <p className="text-xs text-slate-400 truncate">
-                  Messages communautaires ouverts
+                  Tous les messages publics KivaDB
                 </p>
               </div>
             </button>
 
-            {/* Existing Conversations */}
-            <div className="pt-2 px-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            {/* Direct Messages Section */}
+            <div className="pt-2.5 px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <Lock className="h-3 w-3 text-slate-500" />
               Messages privés (Directs)
             </div>
 
@@ -222,7 +253,7 @@ function ChatInner() {
                         {item.displayName}
                       </span>
                       {convo && (
-                        <span className="text-[10px] text-slate-400">
+                        <span className="text-[10px] text-slate-400 font-mono">
                           {formatTime(convo.lastTimestamp)}
                         </span>
                       )}
@@ -234,22 +265,28 @@ function ChatInner() {
                 </button>
               );
             })}
+
+            {filteredUsers.length === 0 && (
+              <p className="text-xs text-slate-400 text-center py-6">
+                Aucun autre utilisateur disponible.
+              </p>
+            )}
           </div>
         </Card>
 
         {/* Right Area: Chat Window */}
         <Card
-          className={`lg:col-span-8 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl ${
+          className={`lg:col-span-8 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
             mobileView === "contacts" ? "hidden lg:flex" : "flex"
           }`}
         >
           {/* Header */}
-          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between gap-2">
+          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               {/* Mobile Back Button */}
               <button
                 onClick={() => setMobileView("contacts")}
-                className="lg:hidden p-1.5 -ml-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                className="lg:hidden p-1.5 -ml-1 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
                 title="Retour aux conversations"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -263,7 +300,7 @@ function ChatInner() {
                   <div className="truncate">
                     <h3 className="font-bold text-white text-sm sm:text-base truncate">Salon Général</h3>
                     <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                      Diffusion publique KivaDB (msg:&lt;id&gt;)
+                      Discussion ouverte visible par tous les membres
                     </p>
                   </div>
                 </>
@@ -284,7 +321,7 @@ function ChatInner() {
                     </div>
                     <p className="text-[10px] sm:text-xs text-emerald-400 flex items-center gap-1 truncate">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      Canal privé KivaDB
+                      Discussion privée sécurisée KivaDB
                     </p>
                   </div>
                 </>
@@ -297,13 +334,15 @@ function ChatInner() {
           </div>
 
           {/* Messages Feed */}
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/40">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/50">
             {messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2 p-4 text-center">
-                <MessageSquare className="h-8 w-8 sm:h-10 sm:w-10 text-slate-600 mb-1" />
-                <p className="font-medium text-white text-sm sm:text-base">Aucun message pour l&apos;instant</p>
-                <p className="text-xs text-slate-400">
-                  Envoyez un message pour initialiser la conversation dans KivaDB.
+                <MessageSquare className="h-9 w-9 sm:h-11 sm:w-11 text-slate-600 mb-1" />
+                <p className="font-bold text-white text-sm sm:text-base">Aucun message pour l&apos;instant</p>
+                <p className="text-xs text-slate-400 max-w-sm">
+                  {activePartner === "all"
+                    ? "Écrivez le premier message public dans le Salon Général !"
+                    : `Commencez votre conversation privée avec @${activePartner}.`}
                 </p>
               </div>
             ) : (
@@ -334,7 +373,7 @@ function ChatInner() {
                           : "bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none"
                       }`}
                     >
-                      {!isSentByMe && (
+                      {!isSentByMe && activePartner === "all" && (
                         <p className="text-[10px] sm:text-[11px] font-bold text-indigo-300 mb-1">
                           @{m.from}
                         </p>
@@ -354,7 +393,7 @@ function ChatInner() {
           {/* Input Footer */}
           <form
             onSubmit={handleSend}
-            className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center gap-2"
+            className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-2"
           >
             <Input
               type="text"
@@ -363,10 +402,15 @@ function ChatInner() {
               }...`}
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}
-              className="flex-1 bg-slate-950/80 text-xs sm:text-sm h-10"
+              className="flex-1 bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80"
               autoFocus
             />
-            <Button type="submit" size="default" className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3 sm:px-4 text-xs sm:text-sm" isLoading={sending}>
+            <Button
+              type="submit"
+              size="default"
+              className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3.5 sm:px-4 text-xs sm:text-sm shadow-md shadow-indigo-500/20"
+              isLoading={sending}
+            >
               <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               <span className="hidden sm:inline">Envoyer</span>
             </Button>

@@ -158,8 +158,8 @@ export function Navbar() {
         </div>
       </header>
 
-      {/* Mobile Bottom Navigation Bar (Floating Dock Style) */}
-      {user && (
+      {/* Mobile Bottom Navigation Bar (Floating Dock Style - Hidden on /messages for unobstructed full-screen chat) */}
+      {user && pathname !== "/messages" && (
         <nav className="md:hidden fixed bottom-3 left-3 right-3 z-40 bg-slate-950/90 border border-slate-800/80 backdrop-blur-2xl px-3 py-2 rounded-2xl flex items-center justify-around shadow-2xl shadow-black/60">
           <Link
             href="/feed"

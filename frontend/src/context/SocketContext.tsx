@@ -60,6 +60,13 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.username]);
 
+  // Ensure user always joins their room upon auth state update
+  useEffect(() => {
+    if (socket && connected && user?.username) {
+      socket.emit("join_user", user.username);
+    }
+  }, [socket, connected, user?.username]);
+
   return (
     <SocketContext.Provider value={{ socket, connected, recentEvents }}>
       {children}

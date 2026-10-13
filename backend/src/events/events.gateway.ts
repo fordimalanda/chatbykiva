@@ -64,7 +64,36 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
       return { error: 'Invalid payload' };
     }
     const msg = await this.messagesService.createMessage(payload.from, payload.to || 'all', payload.content);
+    this.broadcastMessage(msg);
     return { status: 'ok', msg };
+  }
+
+  public broadcastMessage(msg: ChatMessage) {
+    this.logger.log(`Broadcasting message [${msg.id}] from ${msg.from} to ${msg.to}`);
+    // Broadcast to global channel
+    this.server?.emit('message:new', msg);
+    // Direct rooms
+    if (msg.to && msg.to !== 'all') {
+      this.server?.to(`user:${msg.to.toLowerCase()}`).emit('message:direct', msg);
+    }
+    if (msg.from) {
+      this.server?.to(`user:${msg.from.toLowerCase()}`).emit('message:direct', msg);
+    }
+  }
+
+  public broadcastPost(post: any) {
+    this.logger.log(`Broadcasting post [${post.id}] by ${post.author}`);
+    this.server?.emit('post:new', post);
+  }
+
+  public broadcastPostUpdated(post: any) {
+    this.logger.log(`Broadcasting updated post [${post.id}]`);
+    this.server?.emit('post:updated', post);
+  }
+
+  public broadcastPostDeleted(postId: string) {
+    this.logger.log(`Broadcasting deleted post [${postId}]`);
+    this.server?.emit('post:deleted', { id: postId });
   }
 
   /**
@@ -82,20 +111,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     if (event.key.startsWith('msg:') && (event.event === 'set' || event.event === 'update')) {
       const msg = await this.kivaService.get<ChatMessage>(event.key);
       if (msg) {
-        this.logger.log(`Broadcasting new message from KivaDB: [${msg.id}]`);
-        // Broadcast to general stream
-        this.server?.emit('message:new', msg);
-        // Direct room notify
-        if (msg.to && msg.to !== 'all') {
-          this.server?.to(`user:${msg.to.toLowerCase()}`).emit('message:direct', msg);
-        }
-        if (msg.from) {
-          this.server?.to(`user:${msg.from.toLowerCase()}`).emit('message:direct', msg);
-        }
+        this.broadcastMessage(msg);
       }
     }
 
-    // 2. If a user was created or updated (e.g. follow/unfollow) in KivaDB
+    // 2. If a post was created or updated in KivaDB
+    if (event.key.startsWith('post:') && (event.event === 'set' || event.event === 'update')) {
+      const post = await this.kivaService.get<any>(event.key);
+      if (post) {
+        this.broadcastPostUpdated(post);
+      }
+    } else if (event.key.startsWith('post:') && event.event === 'del') {
+      const postId = event.key.replace('post:', '');
+      this.broadcastPostDeleted(postId);
+    }
+
+    // 3. If a user was created or updated (e.g. follow/unfollow) in KivaDB
     if (event.key.startsWith('user:') && (event.event === 'set' || event.event === 'update')) {
       const userDoc = await this.kivaService.get<UserDocument>(event.key);
       if (userDoc) {

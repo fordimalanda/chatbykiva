@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useSocket } from "@/context/SocketContext";
-import { api, ChatMessage, UserSummaryItem } from "@/lib/api";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/Card";
+import { api, PostItem, UserSummaryItem } from "@/lib/api";
+import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
@@ -20,7 +20,9 @@ import {
   Radio,
   Sparkles,
   ExternalLink,
-  ShieldCheck,
+  Heart,
+  Trash2,
+  Share2,
 } from "lucide-react";
 
 export default function FeedPage() {
@@ -28,10 +30,11 @@ export default function FeedPage() {
   const { socket } = useSocket();
   const router = useRouter();
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [posts, setPosts] = useState<PostItem[]>([]);
   const [friends, setFriends] = useState<UserSummaryItem[]>([]);
   const [newContent, setNewContent] = useState("");
   const [sending, setSending] = useState(false);
+  const [likeLoading, setLikeLoading] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!loading && !user) {
@@ -42,8 +45,8 @@ export default function FeedPage() {
   useEffect(() => {
     if (!user) return;
 
-    // Fetch initial messages and registered users
-    api.getMessages().then(setMessages).catch(console.error);
+    // Fetch initial social publications and members
+    api.getPosts().then(setPosts).catch(console.error);
     api.getUsers().then(setFriends).catch(console.error);
   }, [user]);
 
@@ -51,19 +54,25 @@ export default function FeedPage() {
   useEffect(() => {
     if (!socket) return;
 
-    const handleNewMessage = (msg: ChatMessage) => {
-      setMessages((prev) => {
-        if (prev.some((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
+    const handleNewPost = (post: PostItem) => {
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === post.id)) return prev;
+        return [post, ...prev];
       });
     };
 
+    const handlePostUpdated = (updated: PostItem) => {
+      setPosts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    };
+
+    const handlePostDeleted = ({ id }: { id: string }) => {
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+    };
+
     const handleUserUpdated = (updated: any) => {
-      // If current user was updated (e.g. someone followed us)
       if (user && updated.username === user.username) {
         refreshUser();
       }
-      // Update in friends list
       setFriends((prev) =>
         prev.map((f) =>
           f.username === updated.username
@@ -77,27 +86,81 @@ export default function FeedPage() {
       );
     };
 
-    socket.on("message:new", handleNewMessage);
+    socket.on("post:new", handleNewPost);
+    socket.on("post:updated", handlePostUpdated);
+    socket.on("post:deleted", handlePostDeleted);
     socket.on("user:updated", handleUserUpdated);
 
     return () => {
-      socket.off("message:new", handleNewMessage);
+      socket.off("post:new", handleNewPost);
+      socket.off("post:updated", handlePostUpdated);
+      socket.off("post:deleted", handlePostDeleted);
       socket.off("user:updated", handleUserUpdated);
     };
   }, [socket, user, refreshUser]);
 
-  const handlePostMessage = async (e: React.FormEvent) => {
+  const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContent.trim() || sending) return;
 
+    const text = newContent.trim();
     setSending(true);
     try {
-      await api.sendMessage({ to: "all", content: newContent.trim() });
+      const created = await api.createPost(text);
       setNewContent("");
+      // Immediate local state update for instant UX
+      setPosts((prev) => {
+        if (prev.some((p) => p.id === created.id)) return prev;
+        return [created, ...prev];
+      });
     } catch (err: any) {
-      alert(err.message || "Erreur d'envoi");
+      alert(err.message || "Erreur lors de la publication");
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleToggleLike = async (postId: string) => {
+    if (!user) return;
+
+    setLikeLoading((prev) => ({ ...prev, [postId]: true }));
+
+    // Optimistic UI update
+    setPosts((prev) =>
+      prev.map((p) => {
+        if (p.id === postId) {
+          const hasLiked = (p.likes || []).includes(user.username);
+          const nextLikes = hasLiked
+            ? (p.likes || []).filter((u) => u !== user.username)
+            : [...(p.likes || []), user.username];
+          return {
+            ...p,
+            likes: nextLikes,
+            likesCount: nextLikes.length,
+          };
+        }
+        return p;
+      })
+    );
+
+    try {
+      const updated = await api.toggleLikePost(postId);
+      setPosts((prev) => prev.map((p) => (p.id === postId ? updated : p)));
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setLikeLoading((prev) => ({ ...prev, [postId]: false }));
+    }
+  };
+
+  const handleDeletePost = async (postId: string) => {
+    if (!confirm("Voulez-vous supprimer cette publication de KivaDB ?")) return;
+
+    try {
+      await api.deletePost(postId);
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+    } catch (err: any) {
+      alert(err.message || "Erreur de suppression");
     }
   };
 
@@ -110,31 +173,31 @@ export default function FeedPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-5">
       {/* Real-time Ticker */}
       <KivaEventTicker />
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Center: Main Stream (Order-1 on mobile so users see posts immediately) */}
-        <div className="order-1 lg:order-2 lg:col-span-2 space-y-6">
-          {/* Create Post / Message Form */}
-          <Card className="border-slate-800/90 shadow-xl bg-slate-900/70 backdrop-blur-xl">
-            <form onSubmit={handlePostMessage}>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
+        {/* Center Stream: Publications & Posts (Order-1 on mobile) */}
+        <div className="order-1 lg:order-2 lg:col-span-2 space-y-5">
+          {/* Create Post Form */}
+          <Card className="border-slate-800/90 shadow-xl bg-slate-900/80 backdrop-blur-xl p-4 sm:p-5">
+            <form onSubmit={handleCreatePost}>
               <div className="flex items-start gap-3">
                 <Avatar src={user.avatar} fallback={user.username} size="md" className="ring-2 ring-indigo-500/30" />
                 <div className="flex-1">
                   <textarea
                     rows={3}
-                    placeholder="Quoi de neuf dans la communauté KivaSocial ? (enregistré dans KivaDB sous msg:<id>)"
+                    placeholder={`Quoi de neuf, ${user.displayName || user.username} ? Partagez une publication avec la communauté...`}
                     value={newContent}
                     onChange={(e) => setNewContent(e.target.value)}
-                    className="w-full rounded-xl border border-slate-700/80 bg-slate-950/60 p-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/70 focus:border-indigo-500/50 resize-none transition-all"
+                    className="w-full rounded-xl border border-slate-700/80 bg-slate-950/70 p-3 text-xs sm:text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/70 resize-none transition-all"
                     required
                   />
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mt-3 pt-2 border-t border-slate-800/60">
                     <span className="text-[11px] text-slate-400 flex items-center gap-1.5">
                       <Sparkles className="h-3.5 w-3.5 text-indigo-400" />
-                      Diffusion temps réel via <span className="text-indigo-300 font-semibold">KivaDB WebSocket</span>
+                      Publication enregistrée sous <code className="text-indigo-300 font-mono">post:&lt;id&gt;</code>
                     </span>
                     <Button type="submit" size="sm" className="gap-2 self-end sm:self-auto shadow-md shadow-indigo-500/20" isLoading={sending}>
                       <Send className="h-3.5 w-3.5" />
@@ -146,92 +209,126 @@ export default function FeedPage() {
             </form>
           </Card>
 
-          {/* Feed Stream */}
+          {/* Posts Stream */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                 <Radio className="h-4 w-4 text-emerald-400 animate-pulse" />
-                Fil d&apos;actualité en direct ({messages.length})
-              </h3>
-              <Badge variant="live">Temps réel actif</Badge>
+                Actualités de la communauté ({posts.length})
+              </h2>
+              <Badge variant="live">Temps réel KivaDB</Badge>
             </div>
 
-            {messages.length === 0 ? (
-              <Card className="text-center py-12 text-slate-400">
-                <MessageSquare className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-                <p className="font-medium text-white">Aucun message pour l&apos;instant</p>
+            {posts.length === 0 ? (
+              <Card className="text-center py-12 text-slate-400 bg-slate-900/60">
+                <Sparkles className="h-10 w-10 text-slate-600 mx-auto mb-3" />
+                <p className="font-bold text-white text-base">Aucune publication pour le moment</p>
                 <p className="text-xs text-slate-400 mt-1">
-                  Soyez le premier à envoyer un message enregistré dans KivaDB !
+                  Soyez le premier à partager une actualité dans la communauté !
                 </p>
               </Card>
             ) : (
-              [...messages].reverse().map((msg) => (
-                <Card
-                  key={msg.id}
-                  className="border-slate-800/80 hover:border-slate-700/80 transition-all p-4 sm:p-5 shadow-lg bg-slate-900/60 backdrop-blur-md group"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <Link href={`/profile/${msg.from}`}>
-                        <Avatar
-                          fallback={msg.from}
-                          src={`https://api.dicebear.com/7.x/bottts/svg?seed=${msg.from}`}
-                          size="md"
-                          className="ring-2 ring-indigo-500/20 group-hover:ring-indigo-500/50 transition-all"
-                        />
-                      </Link>
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link
-                            href={`/profile/${msg.from}`}
-                            className="font-bold text-white text-sm hover:text-indigo-300 transition-colors"
-                          >
-                            @{msg.from}
-                          </Link>
-                          {msg.to && msg.to !== "all" && (
-                            <span className="text-xs text-slate-400">
-                              → à <span className="text-indigo-400 font-semibold">@{msg.to}</span>
-                            </span>
-                          )}
+              posts.map((post) => {
+                const hasLiked = user ? (post.likes || []).includes(user.username) : false;
+                const isAuthor = user ? post.author === user.username : false;
+
+                return (
+                  <Card
+                    key={post.id}
+                    className="border-slate-800/80 hover:border-slate-700/80 transition-all p-4 sm:p-5 shadow-lg bg-slate-900/70 backdrop-blur-md"
+                  >
+                    {/* Header */}
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <Link href={`/profile/${post.author}`}>
+                          <Avatar
+                            fallback={post.author}
+                            src={post.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${post.author}`}
+                            size="md"
+                            className="ring-2 ring-indigo-500/20 hover:ring-indigo-500/50 transition-all"
+                          />
+                        </Link>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link
+                              href={`/profile/${post.author}`}
+                              className="font-bold text-white text-sm hover:text-indigo-300 transition-colors"
+                            >
+                              {post.displayName || post.author}
+                            </Link>
+                            <span className="text-xs text-indigo-400 font-mono">@{post.author}</span>
+                          </div>
+                          <span className="text-[11px] text-slate-400 font-mono">
+                            {formatTime(post.timestamp)}
+                          </span>
                         </div>
-                        <span className="text-[11px] text-slate-400">
-                          {formatTime(msg.timestamp)}
-                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="secondary" className="font-mono text-[10px] hidden sm:inline-flex">
+                          post:{post.id.substring(0, 8)}...
+                        </Badge>
+                        {isAuthor && (
+                          <button
+                            onClick={() => handleDeletePost(post.id)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                            title="Supprimer la publication"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <Badge variant="secondary" className="font-mono text-[10px] hidden sm:inline-flex">
-                      msg:{msg.id.substring(0, 8)}...
-                    </Badge>
-                  </div>
 
-                  <p className="text-sm text-slate-200 mt-3.5 leading-relaxed whitespace-pre-wrap pl-0 sm:pl-12">
-                    {msg.content}
-                  </p>
+                    {/* Content */}
+                    <p className="text-sm text-slate-200 mt-3.5 leading-relaxed whitespace-pre-wrap pl-0 sm:pl-12">
+                      {post.content}
+                    </p>
 
-                  {/* Quick Card Footer with DM action */}
-                  <div className="mt-3.5 pt-2.5 border-t border-slate-800/60 flex items-center justify-between pl-0 sm:pl-12 text-xs">
-                    <span className="font-mono text-[10px] text-slate-500">
-                      ID: {msg.id.substring(0, 10)}
-                    </span>
-                    {msg.from !== user.username && (
-                      <Link
-                        href={`/messages?with=${msg.from}`}
-                        className="inline-flex items-center gap-1.5 text-indigo-400 hover:text-indigo-300 transition-colors font-medium text-xs"
-                      >
-                        <MessageSquare className="h-3 w-3" />
-                        Discuter en privé
-                      </Link>
-                    )}
-                  </div>
-                </Card>
-              ))
+                    {/* Interaction Bar */}
+                    <div className="mt-4 pt-3 border-t border-slate-800/60 flex items-center justify-between pl-0 sm:pl-12 text-xs">
+                      <div className="flex items-center gap-4">
+                        {/* Like button */}
+                        <button
+                          onClick={() => handleToggleLike(post.id)}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all ${
+                            hasLiked
+                              ? "bg-rose-500/15 text-rose-400 border border-rose-500/30 font-semibold"
+                              : "text-slate-400 hover:text-rose-400 hover:bg-slate-800/60"
+                          }`}
+                        >
+                          <Heart
+                            className={`h-4 w-4 ${hasLiked ? "fill-rose-400 text-rose-400" : ""}`}
+                          />
+                          <span>{post.likesCount || 0}</span>
+                        </button>
+
+                        {/* Send DM button */}
+                        {!isAuthor && (
+                          <Link
+                            href={`/messages?with=${post.author}`}
+                            className="flex items-center gap-1.5 text-slate-400 hover:text-indigo-300 transition-colors py-1.5 px-2 rounded-lg hover:bg-slate-800/60"
+                          >
+                            <MessageSquare className="h-3.5 w-3.5" />
+                            <span className="hidden sm:inline">Discuter en privé</span>
+                          </Link>
+                        )}
+                      </div>
+
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        KivaDB NoSQL
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })
             )}
           </div>
         </div>
 
         {/* Left Column: User Profile Card (Order-2 on mobile, Order-1 on desktop) */}
-        <div className="order-2 lg:order-1 space-y-6">
-          <Card className="border-slate-800/90 text-center relative overflow-hidden bg-slate-900/70 backdrop-blur-xl">
+        <div className="order-2 lg:order-1 space-y-5">
+          <Card className="border-slate-800/90 text-center relative overflow-hidden bg-slate-900/80 backdrop-blur-xl">
             <div className="h-20 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 -mx-6 -mt-6 mb-4" />
             <div className="relative -mt-14 mb-3 flex justify-center">
               <Avatar
@@ -246,20 +343,20 @@ export default function FeedPage() {
             <p className="text-xs text-indigo-400 font-mono">@{user.username}</p>
             <p className="text-xs text-slate-400 mt-2 line-clamp-2 px-2">{user.bio}</p>
 
-            {/* Dynamic Counters */}
-            <div className="grid grid-cols-2 gap-2 mt-6 pt-4 border-t border-slate-800/80">
+            {/* Counters */}
+            <div className="grid grid-cols-2 gap-2 mt-5 pt-4 border-t border-slate-800/80">
               <Link
                 href={`/profile/${user.username}`}
-                className="p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors"
+                className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors"
               >
-                <div className="text-xl font-extrabold text-white">{user.followersCount}</div>
+                <div className="text-xl font-black text-white">{user.followersCount}</div>
                 <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Abonnés</div>
               </Link>
               <Link
                 href={`/profile/${user.username}`}
-                className="p-2.5 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors"
+                className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800/70 transition-colors"
               >
-                <div className="text-xl font-extrabold text-white">{user.followingCount}</div>
+                <div className="text-xl font-black text-white">{user.followingCount}</div>
                 <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Abonnements</div>
               </Link>
             </div>
@@ -267,39 +364,34 @@ export default function FeedPage() {
             <div className="mt-4">
               <Link href={`/profile/${user.username}`}>
                 <Button variant="outline" size="sm" className="w-full gap-1.5 text-xs">
-                  Voir mon profil complet
+                  Mon profil complet
                   <ExternalLink className="h-3 w-3" />
                 </Button>
               </Link>
             </div>
           </Card>
 
-          {/* Quick Stats on KivaDB */}
-          <Card className="border-slate-800/90 p-4 bg-slate-900/70 backdrop-blur-xl">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-              <Database className="h-4 w-4 text-indigo-400" />
-              Stockage KivaDB
+          {/* Quick Access to Chat */}
+          <Card className="border-slate-800/90 p-4 bg-slate-900/80 backdrop-blur-xl">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-2 flex items-center gap-2">
+              <MessageSquare className="h-4 w-4 text-indigo-400" />
+              Messagerie & Salons
             </h3>
-            <div className="space-y-2 text-xs">
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Workspace actif :</span>
-                <span className="font-mono text-indigo-300 font-medium">social_app</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-slate-800/60">
-                <span className="text-slate-400">Clé utilisateur :</span>
-                <span className="font-mono text-indigo-300">user:{user.username}</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-slate-400">Port binaire / REST :</span>
-                <span className="font-mono text-emerald-400">2911 / 8080</span>
-              </div>
-            </div>
+            <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+              Pour discuter en direct dans le Salon Général ou envoyer des messages privés, rendez-vous sur la messagerie.
+            </p>
+            <Link href="/messages">
+              <Button size="sm" className="w-full gap-2 text-xs">
+                <MessageSquare className="h-3.5 w-3.5" />
+                Ouvrir les messages
+              </Button>
+            </Link>
           </Card>
         </div>
 
-        {/* Right Column: Suggested Friends & Community (Order-3) */}
-        <div className="order-3 space-y-6">
-          <Card className="border-slate-800/90 p-4 bg-slate-900/70 backdrop-blur-xl">
+        {/* Right Column: Suggested Members (Order-3) */}
+        <div className="order-3 space-y-5">
+          <Card className="border-slate-800/90 p-4 bg-slate-900/80 backdrop-blur-xl">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                 <Users className="h-4 w-4 text-indigo-400" />
@@ -344,7 +436,7 @@ export default function FeedPage() {
 
               {friends.length <= 1 && (
                 <p className="text-xs text-slate-400 text-center py-4">
-                  Aucun autre utilisateur pour le moment. Créez un compte supplémentaire pour tester le réseau !
+                  Aucun autre utilisateur pour le moment.
                 </p>
               )}
             </div>

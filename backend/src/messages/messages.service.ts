@@ -70,22 +70,21 @@ export class MessagesService {
       const msg = item.data;
       if (!msg || !msg.content) continue;
 
-      if (u1 && u2) {
-        // Direct conversation between u1 and u2
-        const isDirect =
-          (msg.from === u1 && msg.to === u2) ||
-          (msg.from === u2 && msg.to === u1);
-        if (isDirect) {
-          messages.push(msg);
-        }
-      } else if (u1) {
-        // All messages where u1 is sender or receiver or public
-        if (msg.from === u1 || msg.to === u1 || msg.to === 'all') {
-          messages.push(msg);
+      if (u2 && u2 !== 'all') {
+        // Direct conversation between u1 and u2 ONLY
+        if (u1) {
+          const isDirect =
+            (msg.from === u1 && msg.to === u2) ||
+            (msg.from === u2 && msg.to === u1);
+          if (isDirect) {
+            messages.push(msg);
+          }
         }
       } else {
-        // Fallback: public or all
-        messages.push(msg);
+        // Public salon: messages sent to "all" only
+        if (msg.to === 'all') {
+          messages.push(msg);
+        }
       }
     }
 

@@ -30,6 +30,17 @@ export interface ChatMessage {
   timestamp: number;
 }
 
+export interface PostItem {
+  id: string;
+  author: string;
+  displayName: string;
+  avatar: string;
+  content: string;
+  likes: string[];
+  likesCount: number;
+  timestamp: number;
+}
+
 export interface ConversationSummary {
   withUser: string;
   lastMessage: string;
@@ -137,6 +148,43 @@ class ApiService {
     });
     if (!res.ok) return [];
     return res.json();
+  }
+
+  async getPosts(): Promise<PostItem[]> {
+    const res = await fetch(`${getBackendUrl()}/posts`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async createPost(content: string): Promise<PostItem> {
+    const res = await fetch(`${getBackendUrl()}/posts`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur lors de la publication");
+    return json;
+  }
+
+  async toggleLikePost(id: string): Promise<PostItem> {
+    const res = await fetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}/like`, {
+      method: "POST",
+      headers: this.getHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur lors du like");
+    return json;
+  }
+
+  async deletePost(id: string): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+    return res.ok;
   }
 }
 
