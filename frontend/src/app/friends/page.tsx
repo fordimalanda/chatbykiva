@@ -260,6 +260,15 @@ export default function FriendsPage() {
                       <Badge variant="secondary" className="text-[10px]">
                         Vous
                       </Badge>
+                    ) : member.followsYou ? (
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="secondary" className="text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                          Vous suit
+                        </Badge>
+                        <Badge variant="outline" className="font-mono text-[10px] hidden sm:inline-flex">
+                          user:{member.username}
+                        </Badge>
+                      </div>
                     ) : (
                       <Badge variant="outline" className="font-mono text-[10px]">
                         user:{member.username}
@@ -302,6 +311,8 @@ export default function FriendsPage() {
                         className={`flex-1 gap-1.5 transition-all ${
                           member.isFollowing
                             ? "hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
+                            : member.followsYou
+                            ? "bg-gradient-to-r from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20"
                             : ""
                         }`}
                         onClick={() => handleToggleFollow(member.username)}
@@ -311,6 +322,11 @@ export default function FriendsPage() {
                           <>
                             <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
                             Abonné (Unfollow)
+                          </>
+                        ) : member.followsYou ? (
+                          <>
+                            <UserPlus className="h-3.5 w-3.5 text-white" />
+                            Suivre en retour
                           </>
                         ) : (
                           <>

@@ -5,6 +5,7 @@ import { UsersModule } from './users/users.module';
 import { MessagesModule } from './messages/messages.module';
 import { EventsModule } from './events/events.module';
 import { PostsModule } from './posts/posts.module';
+import { ChannelsModule } from './channels/channels.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PostsModule } from './posts/posts.module';
     MessagesModule,
     EventsModule,
     PostsModule,
+    ChannelsModule,
   ],
 })
 export class AppModule {}

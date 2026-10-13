@@ -73,11 +73,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect, 
     // Broadcast to global channel
     this.server?.emit('message:new', msg);
     // Direct rooms
-    if (msg.to && msg.to !== 'all') {
+    if (msg.to && msg.to !== 'all' && msg.to !== 'general') {
       this.server?.to(`user:${msg.to.toLowerCase()}`).emit('message:direct', msg);
     }
     if (msg.from) {
       this.server?.to(`user:${msg.from.toLowerCase()}`).emit('message:direct', msg);
+    }
+    // Mention notifications to user rooms
+    if (Array.isArray(msg.mentions)) {
+      for (const mUser of msg.mentions) {
+        this.server?.to(`user:${mUser.toLowerCase()}`).emit('message:mention', msg);
+      }
     }
   }
 

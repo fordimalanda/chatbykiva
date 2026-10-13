@@ -1,11 +1,15 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { KivaService } from '../kiva/kiva.service';
+import { UserDocument } from '../auth/auth.service';
 
 export interface ChatMessage {
   id: string;
   from: string;
+  fromDisplayName?: string;
+  fromAvatar?: string;
   to: string;
   content: string;
+  mentions?: string[];
   timestamp: number;
 }
 
@@ -27,11 +31,28 @@ export class MessagesService {
    */
   async createMessage(from: string, to: string, content: string): Promise<ChatMessage> {
     const cleanFrom = from.trim().toLowerCase();
-    const cleanTo = to ? to.trim().toLowerCase() : 'all';
+    const cleanTo = to ? to.trim().toLowerCase() : 'general';
     const cleanContent = content ? content.trim() : '';
 
     if (!cleanContent) {
       throw new BadRequestException('Le contenu du message ne peut pas être vide.');
+    }
+
+    // Get sender full profile from KivaDB to attach displayName & avatar
+    const senderDoc = await this.kivaService.get<UserDocument>(`user:${cleanFrom}`);
+    const fromDisplayName = senderDoc?.displayName || cleanFrom;
+    const fromAvatar = senderDoc?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${cleanFrom}`;
+
+    // Extract @mentions (e.g. @nathan, @fordimalanda)
+    const mentionMatches = cleanContent.match(/@([a-zA-Z0-9_-]+)/g);
+    const mentions: string[] = [];
+    if (mentionMatches) {
+      for (const m of mentionMatches) {
+        const username = m.substring(1).toLowerCase();
+        if (!mentions.includes(username)) {
+          mentions.push(username);
+        }
+      }
     }
 
     const timestamp = Date.now();
@@ -41,8 +62,11 @@ export class MessagesService {
     const messageDoc: ChatMessage = {
       id,
       from: cleanFrom,
+      fromDisplayName,
+      fromAvatar,
       to: cleanTo,
       content: cleanContent,
+      mentions,
       timestamp,
     };
 
@@ -51,39 +75,44 @@ export class MessagesService {
       throw new BadRequestException("Impossible d'enregistrer le message dans KivaDB.");
     }
 
-    this.logger.log(`Message created in KivaDB: [${key}] ${cleanFrom} -> ${cleanTo}`);
+    this.logger.log(`Message created in KivaDB: [${key}] ${cleanFrom} (${fromDisplayName}) -> ${cleanTo}`);
     return messageDoc;
   }
 
   /**
    * Retrieve messages from KivaDB
    */
-  async getMessages(currentUser?: string, withUser?: string): Promise<ChatMessage[]> {
+  async getMessages(currentUser?: string, withTarget?: string): Promise<ChatMessage[]> {
     const rawItems = await this.kivaService.range<ChatMessage>('msg:', 'msg:~', 1000);
     const messages: ChatMessage[] = [];
 
     const u1 = currentUser?.trim().toLowerCase();
-    const u2 = withUser?.trim().toLowerCase();
+    const target = withTarget ? withTarget.trim().toLowerCase() : 'general';
+
+    const isSalon = target === 'all' || target === 'general' || target.startsWith('channel:') || target.startsWith('c-') || target.startsWith('salon:');
 
     for (const item of rawItems) {
       if (!item.key.startsWith('msg:')) continue;
       const msg = item.data;
       if (!msg || !msg.content) continue;
 
-      if (u2 && u2 !== 'all') {
-        // Direct conversation between u1 and u2 ONLY
+      if (isSalon) {
+        // Salon / Channel messages
+        const isMatch =
+          msg.to === target ||
+          ((target === 'all' || target === 'general') && (msg.to === 'all' || msg.to === 'general'));
+        if (isMatch) {
+          messages.push(msg);
+        }
+      } else {
+        // Direct conversation between u1 and target ONLY
         if (u1) {
           const isDirect =
-            (msg.from === u1 && msg.to === u2) ||
-            (msg.from === u2 && msg.to === u1);
+            (msg.from === u1 && msg.to === target) ||
+            (msg.from === target && msg.to === u1);
           if (isDirect) {
             messages.push(msg);
           }
-        }
-      } else {
-        // Public salon: messages sent to "all" only
-        if (msg.to === 'all') {
-          messages.push(msg);
         }
       }
     }

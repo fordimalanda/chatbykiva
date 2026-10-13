@@ -10,6 +10,7 @@ export interface UserSummaryItem {
   followersCount: number;
   followingCount: number;
   isFollowing: boolean;
+  followsYou: boolean;
   createdAt: number;
 }
 
@@ -26,6 +27,8 @@ export class UsersService {
     const rangeData = await this.kivaService.range<UserDocument>('user:', 'user:~');
     const users: UserSummaryItem[] = [];
 
+    const cUser = currentUser?.toLowerCase();
+
     for (const item of rangeData) {
       if (!item.key.startsWith('user:')) continue;
       const doc = item.data;
@@ -41,7 +44,8 @@ export class UsersService {
         avatar: doc.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${doc.username}`,
         followersCount: followers.length,
         followingCount: following.length,
-        isFollowing: currentUser ? followers.includes(currentUser.toLowerCase()) : false,
+        isFollowing: cUser ? followers.includes(cUser) : false,
+        followsYou: cUser ? following.includes(cUser) : false,
         createdAt: doc.createdAt || Date.now(),
       });
     }
@@ -52,7 +56,7 @@ export class UsersService {
   /**
    * Get single user profile
    */
-  async findByUsername(username: string, currentUser?: string): Promise<SafeUser & { isFollowing: boolean }> {
+  async findByUsername(username: string, currentUser?: string): Promise<SafeUser & { isFollowing: boolean; followsYou: boolean }> {
     const cleanUsername = username.toLowerCase();
     const doc = await this.kivaService.get<UserDocument>(`user:${cleanUsername}`);
     if (!doc) {
@@ -61,6 +65,7 @@ export class UsersService {
 
     const followers = Array.isArray(doc.followers) ? doc.followers : [];
     const following = Array.isArray(doc.following) ? doc.following : [];
+    const cUser = currentUser?.toLowerCase();
 
     return {
       username: doc.username,
@@ -72,7 +77,8 @@ export class UsersService {
       followersCount: followers.length,
       followingCount: following.length,
       createdAt: doc.createdAt || Date.now(),
-      isFollowing: currentUser ? followers.includes(currentUser.toLowerCase()) : false,
+      isFollowing: cUser ? followers.includes(cUser) : false,
+      followsYou: cUser ? following.includes(cUser) : false,
     };
   }
 

@@ -213,6 +213,11 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                         <UserCheck className="h-4 w-4 text-emerald-400" />
                         Abonné (Unfollow)
                       </>
+                    ) : profile.followsYou ? (
+                      <>
+                        <UserPlus className="h-4 w-4" />
+                        Suivre en retour
+                      </>
                     ) : (
                       <>
                         <UserPlus className="h-4 w-4" />

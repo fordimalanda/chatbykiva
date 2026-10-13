@@ -14,20 +14,36 @@ export interface UserSummaryItem {
   followersCount: number;
   followingCount: number;
   isFollowing: boolean;
+  followsYou?: boolean;
   createdAt: number;
 }
 
 export interface UserProfile extends UserSummaryItem {
   followers: string[];
   following: string[];
+  followsYou?: boolean;
 }
 
 export interface ChatMessage {
   id: string;
   from: string;
+  fromDisplayName?: string;
+  fromAvatar?: string;
   to: string;
   content: string;
+  mentions?: string[];
   timestamp: number;
+}
+
+export interface ChannelItem {
+  id: string;
+  name: string;
+  description: string;
+  creator: string;
+  admins: string[];
+  isPrivate: boolean;
+  members: string[];
+  createdAt: number;
 }
 
 export interface PostItem {
@@ -185,6 +201,46 @@ class ApiService {
       headers: this.getHeaders(),
     });
     return res.ok;
+  }
+
+  async getChannels(): Promise<ChannelItem[]> {
+    const res = await fetch(`${getBackendUrl()}/channels`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async createChannel(data: { name: string; description?: string; isPrivate?: boolean }): Promise<ChannelItem> {
+    const res = await fetch(`${getBackendUrl()}/channels`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de création du salon");
+    return json;
+  }
+
+  async updateChannel(id: string, data: { name?: string; description?: string; isPrivate?: boolean; members?: string[] }): Promise<ChannelItem> {
+    const res = await fetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de modification du salon");
+    return json;
+  }
+
+  async deleteChannel(id: string): Promise<boolean> {
+    const res = await fetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.message || "Erreur de suppression du salon");
+    return true;
   }
 }
 
