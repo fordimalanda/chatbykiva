@@ -20,7 +20,7 @@ export default function RootLayout({
         <AuthProvider>
           <SocketProvider>
             <Navbar />
-            <main className="flex-1 relative z-10">{children}</main>
+            <main className="flex-1 relative z-10 pb-20 md:pb-6">{children}</main>
           </SocketProvider>
         </AuthProvider>
       </body>

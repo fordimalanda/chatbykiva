@@ -1,4 +1,4 @@
-# 🌐 KivaSocial — Vitrine Technologique & Démonstration de KivaDB
+# KivaSocial — Vitrine Technologique & Démonstration de KivaDB
 
 > **KivaSocial** est un projet démonstrateur complet (Proof of Concept fullstack) conçu pour mettre en valeur les capacités, la rapidité et la flexibilité de **KivaDB (v1.0.0)** — une base de données NoSQL moderne alliant stockage clé-valeur, documents JSON structurés et notifications temps réel natives.
 
@@ -6,7 +6,7 @@ Ce projet démontre comment concevoir une application interactive moderne (rése
 
 ---
 
-## 💡 Pourquoi ce projet ? Ce que KivaDB apporte
+## Pourquoi ce projet ? Ce que KivaDB apporte
 
 Ce projet illustre 4 points forts majeurs de KivaDB :
 
@@ -27,16 +27,16 @@ Ce projet illustre 4 points forts majeurs de KivaDB :
 
 ---
 
-## 🛠️ Stack Technique
+## Stack Technique
 
-- **Base de Données** : [KivaDB 1.0.0](DOCUMENTATION.md) (Workspace dédié `social_app`, ports 8080 et 2911)
+- **Base de Données** : KivaDB 1.0.0 (Workspace dédié `social_app`, ports 8080 et 2911)
 - **Backend** : NestJS (TypeScript, WebSocket Gateway Socket.IO, Bcrypt)
 - **Frontend** : Next.js 15 (App Router, React 19, TypeScript)
 - **UI & Style** : TailwindCSS, Lucide Icons, Design System inspiré de ShadcnUI (Dark theme épuré)
 
 ---
 
-## 🎯 Fonctionnalités Implémentées
+## Fonctionnalités Implémentées
 
 | Fonctionnalité | Rôle dans l'application | Intégration KivaDB |
 | :--- | :--- | :--- |
@@ -50,7 +50,7 @@ Ce projet illustre 4 points forts majeurs de KivaDB :
 
 ---
 
-## 📂 Arborescence du Projet
+## Arborescence du Projet
 
 ```text
 chatbykiva/
@@ -96,7 +96,7 @@ chatbykiva/
 
 ---
 
-## 🚀 Démarrage Rapide
+## Démarrage Rapide
 
 ### Prérequis
 Assurez-vous que votre base KivaDB est active :
@@ -109,7 +109,7 @@ kivadb status
 
 ### Option 1 : Lancement en 1 clic (Recommandé)
 Double-cliquez sur le fichier :
-👉 **`start-all.bat`**
+**`start-all.bat`**
 
 Deux fenêtres de terminal s'ouvriront pour lancer simultanément le backend et le frontend.
 
@@ -131,14 +131,14 @@ npm run dev
 
 ---
 
-## 📱 Accès depuis un Smartphone (Réseau Local Wi-Fi)
+## Accès depuis un Smartphone (Réseau Local Wi-Fi)
 
 Le projet est préconfiguré pour être testé simultanément depuis votre PC et depuis un smartphone connecté au même réseau Wi-Fi :
 
-1. Sur votre **PC** : ouvrez [http://localhost:3000](http://localhost:3000).
+1. Sur votre **PC** : ouvrez http://localhost:3000.
 2. Sur votre **Smartphone** : ouvrez l'adresse IP locale de votre machine sur le port 3000 :
    ```text
    http://<VOTRE_IP_LOCALE>:3000   (ex: http://192.168.1.68:3000)
    ```
-3. Créez un compte différent sur chaque appareil (ex: `alice` sur PC et `bob` sur smartphone).
-4. Suivez-vous mutuellement et envoyez-vous des messages : vous verrez les compteurs et les messages s'actualiser **instantanément sur les deux écrans** grâce aux WebSockets de KivaDB !
+3. Créez un compte différent sur chaque appareil (ex: alice sur PC et bob sur smartphone).
+4. Suivez-vous mutuellement et envoyez-vous des messages : vous verrez les compteurs et les messages s'actualiser **instantanément sur les deux écrans** grâce aux WebSockets de KivaDB.

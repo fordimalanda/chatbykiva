@@ -272,11 +272,11 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-t border-slate-800/80 px-6 bg-slate-900/40">
+        {/* Tab Navigation (Responsive scrollable) */}
+        <div className="flex border-t border-slate-800/80 px-4 sm:px-6 bg-slate-900/40 overflow-x-auto scrollbar-none">
           <button
             onClick={() => setActiveTab("about")}
-            className={`py-3.5 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors ${
+            className={`py-3.5 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors whitespace-nowrap ${
               activeTab === "about"
                 ? "border-indigo-500 text-white"
                 : "border-transparent text-slate-400 hover:text-slate-200"
@@ -286,7 +286,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
           </button>
           <button
             onClick={() => setActiveTab("followers")}
-            className={`py-3.5 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3.5 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === "followers"
                 ? "border-indigo-500 text-white"
                 : "border-transparent text-slate-400 hover:text-slate-200"
@@ -296,7 +296,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
           </button>
           <button
             onClick={() => setActiveTab("following")}
-            className={`py-3.5 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3.5 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === "following"
                 ? "border-indigo-500 text-white"
                 : "border-transparent text-slate-400 hover:text-slate-200"
@@ -306,7 +306,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
           </button>
           <button
             onClick={() => setActiveTab("kivadb")}
-            className={`py-3.5 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 ${
+            className={`py-3.5 px-3 sm:px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors flex items-center gap-1.5 whitespace-nowrap ${
               activeTab === "kivadb"
                 ? "border-indigo-500 text-white"
                 : "border-transparent text-slate-400 hover:text-slate-200"

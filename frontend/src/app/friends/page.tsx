@@ -128,48 +128,93 @@ export default function FriendsPage() {
     }
   };
 
+  const [filterTab, setFilterTab] = useState<"all" | "following" | "followers">("all");
+
   const filteredUsers = users.filter((u) => {
     const q = searchTerm.toLowerCase();
-    return (
+    const matchesSearch =
       u.username.toLowerCase().includes(q) ||
       (u.displayName && u.displayName.toLowerCase().includes(q)) ||
-      (u.bio && u.bio.toLowerCase().includes(q))
-    );
+      (u.bio && u.bio.toLowerCase().includes(q));
+
+    if (!matchesSearch) return false;
+
+    if (filterTab === "following") {
+      return u.isFollowing;
+    }
+    if (filterTab === "followers") {
+      // Current user is following this member, or if they follow me
+      // In UserSummaryItem, we check followers
+      return u.followersCount > 0;
+    }
+    return true;
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
       {/* Ticker */}
       <KivaEventTicker />
 
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black text-white tracking-tight">
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
               Communauté & Amis
             </h1>
-            <Badge variant="default" className="font-mono">
+            <Badge variant="default" className="font-mono text-xs">
               scan(user:*)
             </Badge>
           </div>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Découvrez tous les utilisateurs enregistrés dans le workspace{" "}
-            <span className="font-mono text-indigo-400 font-medium">social_app</span> de KivaDB.
+            <span className="font-mono text-indigo-400 font-semibold">social_app</span> de KivaDB.
           </p>
         </div>
 
         {/* Search Input */}
-        <div className="w-full sm:w-72 relative">
+        <div className="w-full md:w-80 relative">
           <Input
             type="text"
-            placeholder="Rechercher par nom, @"
+            placeholder="Rechercher par nom, @..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9"
+            className="pl-9 pr-8 bg-slate-900/80 border-slate-700/80"
           />
           <Search className="h-4 w-4 text-slate-400 absolute left-3 top-3.5 pointer-events-none" />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-2.5 top-3 text-xs text-slate-400 hover:text-white"
+            >
+              ✕
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Filter Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3 overflow-x-auto">
+        <button
+          onClick={() => setFilterTab("all")}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+            filterTab === "all"
+              ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+              : "bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800"
+          }`}
+        >
+          Tous les membres ({users.length})
+        </button>
+        <button
+          onClick={() => setFilterTab("following")}
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+            filterTab === "following"
+              ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+              : "bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800"
+          }`}
+        >
+          Mes abonnements ({users.filter((u) => u.isFollowing).length})
+        </button>
       </div>
 
       {/* Users Grid */}

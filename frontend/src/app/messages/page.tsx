@@ -23,6 +23,7 @@ import {
   Radio,
   ExternalLink,
   Shield,
+  ArrowLeft,
 } from "lucide-react";
 
 function ChatInner() {
@@ -32,6 +33,9 @@ function ChatInner() {
 
   const initialWith = searchParams.get("with") || "all";
   const [activePartner, setActivePartner] = useState<string>(initialWith);
+  const [mobileView, setMobileView] = useState<"contacts" | "chat">(
+    searchParams.get("with") ? "chat" : "contacts"
+  );
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [users, setUsers] = useState<UserSummaryItem[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
@@ -111,12 +115,16 @@ function ChatInner() {
         to: activePartner,
         content: text,
       });
-      // Message will be added automatically via WebSocket event
     } catch (err: any) {
       alert(err.message || "Erreur d'envoi");
     } finally {
       setSending(false);
     }
+  };
+
+  const handleSelectPartner = (partner: string) => {
+    setActivePartner(partner);
+    setMobileView("chat");
   };
 
   const filteredUsers = users.filter((u) => {
@@ -128,16 +136,20 @@ function ChatInner() {
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-4">
+    <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 sm:py-6 space-y-4">
       <KivaEventTicker />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-[75vh] min-h-[550px]">
-        {/* Left Sidebar: Conversations & Contacts (4 cols) */}
-        <Card className="lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[calc(100dvh-12rem)] md:h-[calc(100vh-11rem)] min-h-[480px]">
+        {/* Left Sidebar: Conversations & Contacts */}
+        <Card
+          className={`lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
+            mobileView === "chat" ? "hidden lg:flex" : "flex"
+          }`}
+        >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800/80 bg-slate-900/60">
+          <div className="p-3.5 sm:p-4 border-b border-slate-800/80 bg-slate-900/60">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-indigo-400" />
                 Messagerie Instantanée
               </h2>
@@ -161,7 +173,7 @@ function ChatInner() {
           <div className="flex-1 overflow-y-auto divide-y divide-slate-800/50 p-2 space-y-1">
             {/* Global Chat Room */}
             <button
-              onClick={() => setActivePartner("all")}
+              onClick={() => handleSelectPartner("all")}
               className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all text-left ${
                 activePartner === "all"
                   ? "bg-indigo-600/20 border border-indigo-500/30 text-white"
@@ -185,7 +197,7 @@ function ChatInner() {
             </button>
 
             {/* Existing Conversations */}
-            <div className="pt-2 px-1 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            <div className="pt-2 px-1 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-400">
               Messages privés (Directs)
             </div>
 
@@ -196,7 +208,7 @@ function ChatInner() {
               return (
                 <button
                   key={item.username}
-                  onClick={() => setActivePartner(item.username)}
+                  onClick={() => handleSelectPartner(item.username)}
                   className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-all text-left ${
                     isActive
                       ? "bg-indigo-600/20 border border-indigo-500/30 text-white"
@@ -225,20 +237,33 @@ function ChatInner() {
           </div>
         </Card>
 
-        {/* Right Area: Chat Window (8 cols) */}
-        <Card className="lg:col-span-8 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl">
+        {/* Right Area: Chat Window */}
+        <Card
+          className={`lg:col-span-8 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl ${
+            mobileView === "contacts" ? "hidden lg:flex" : "flex"
+          }`}
+        >
           {/* Header */}
-          <div className="p-4 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between">
-            <div className="flex items-center gap-3">
+          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/60 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+              {/* Mobile Back Button */}
+              <button
+                onClick={() => setMobileView("contacts")}
+                className="lg:hidden p-1.5 -ml-1 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                title="Retour aux conversations"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+
               {activePartner === "all" ? (
                 <>
-                  <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center">
+                  <div className="h-9 w-9 sm:h-10 sm:w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
                     <Hash className="h-5 w-5 text-white" />
                   </div>
-                  <div>
-                    <h3 className="font-bold text-white text-base">Salon Général</h3>
-                    <p className="text-xs text-slate-400">
-                      Diffusion en direct à tous les utilisateurs (clé KivaDB msg:&lt;id&gt;)
+                  <div className="truncate">
+                    <h3 className="font-bold text-white text-sm sm:text-base truncate">Salon Général</h3>
+                    <p className="text-[11px] sm:text-xs text-slate-400 truncate">
+                      Diffusion publique KivaDB (msg:&lt;id&gt;)
                     </p>
                   </div>
                 </>
@@ -248,34 +273,35 @@ function ChatInner() {
                     src={`https://api.dicebear.com/7.x/bottts/svg?seed=${activePartner}`}
                     fallback={activePartner}
                     size="md"
+                    className="shrink-0"
                   />
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-bold text-white text-base">@{activePartner}</h3>
+                  <div className="truncate">
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="font-bold text-white text-sm sm:text-base truncate">@{activePartner}</h3>
                       <Link href={`/profile/${activePartner}`}>
-                        <ExternalLink className="h-3.5 w-3.5 text-indigo-400 hover:text-indigo-300" />
+                        <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-400 hover:text-indigo-300 shrink-0" />
                       </Link>
                     </div>
-                    <p className="text-xs text-emerald-400 flex items-center gap-1">
-                      <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                      Canal direct chiffré KivaDB
+                    <p className="text-[10px] sm:text-xs text-emerald-400 flex items-center gap-1 truncate">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                      Canal privé KivaDB
                     </p>
                   </div>
                 </>
               )}
             </div>
 
-            <Badge variant="outline" className="font-mono text-xs">
-              {messages.length} message(s)
+            <Badge variant="outline" className="font-mono text-[10px] sm:text-xs shrink-0">
+              {messages.length} msg
             </Badge>
           </div>
 
           {/* Messages Feed */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/40">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/40">
             {messages.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2">
-                <MessageSquare className="h-10 w-10 text-slate-600 mb-2" />
-                <p className="font-medium text-white">Aucun message échangé pour le moment</p>
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2 p-4 text-center">
+                <MessageSquare className="h-8 w-8 sm:h-10 sm:w-10 text-slate-600 mb-1" />
+                <p className="font-medium text-white text-sm sm:text-base">Aucun message pour l&apos;instant</p>
                 <p className="text-xs text-slate-400">
                   Envoyez un message pour initialiser la conversation dans KivaDB.
                 </p>
@@ -287,12 +313,12 @@ function ChatInner() {
                 return (
                   <div
                     key={m.id}
-                    className={`flex items-end gap-2.5 ${
+                    className={`flex items-end gap-2 ${
                       isSentByMe ? "justify-end" : "justify-start"
                     }`}
                   >
                     {!isSentByMe && (
-                      <Link href={`/profile/${m.from}`}>
+                      <Link href={`/profile/${m.from}`} className="shrink-0">
                         <Avatar
                           src={`https://api.dicebear.com/7.x/bottts/svg?seed=${m.from}`}
                           fallback={m.from}
@@ -302,19 +328,19 @@ function ChatInner() {
                     )}
 
                     <div
-                      className={`max-w-[75%] rounded-2xl px-4 py-2.5 text-sm shadow-md transition-all ${
+                      className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2 sm:px-4 sm:py-2.5 text-xs sm:text-sm shadow-md transition-all ${
                         isSentByMe
                           ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-br-none"
                           : "bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none"
                       }`}
                     >
                       {!isSentByMe && (
-                        <p className="text-[11px] font-bold text-indigo-300 mb-1">
+                        <p className="text-[10px] sm:text-[11px] font-bold text-indigo-300 mb-1">
                           @{m.from}
                         </p>
                       )}
-                      <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
-                      <div className="flex items-center justify-end gap-1.5 mt-1 text-[10px] text-slate-300/80 font-mono">
+                      <p className="whitespace-pre-wrap leading-relaxed break-words">{m.content}</p>
+                      <div className="flex items-center justify-end gap-1.5 mt-1 text-[9px] sm:text-[10px] text-slate-300/80 font-mono">
                         <span>{formatTime(m.timestamp)}</span>
                       </div>
                     </div>
@@ -328,21 +354,21 @@ function ChatInner() {
           {/* Input Footer */}
           <form
             onSubmit={handleSend}
-            className="p-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center gap-2"
+            className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/60 flex items-center gap-2"
           >
             <Input
               type="text"
-              placeholder={`Écrire un message à ${
+              placeholder={`Écrire à ${
                 activePartner === "all" ? "la communauté" : `@${activePartner}`
               }...`}
               value={inputContent}
               onChange={(e) => setInputContent(e.target.value)}
-              className="flex-1 bg-slate-950/80"
+              className="flex-1 bg-slate-950/80 text-xs sm:text-sm h-10"
               autoFocus
             />
-            <Button type="submit" size="default" className="gap-2 shrink-0" isLoading={sending}>
-              <Send className="h-4 w-4" />
-              Envoyer
+            <Button type="submit" size="default" className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3 sm:px-4 text-xs sm:text-sm" isLoading={sending}>
+              <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+              <span className="hidden sm:inline">Envoyer</span>
             </Button>
           </form>
         </Card>
