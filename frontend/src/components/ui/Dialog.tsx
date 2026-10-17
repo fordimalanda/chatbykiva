@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
 import { X } from "lucide-react";
 
@@ -36,10 +37,15 @@ export function Dialog({ open, onOpenChange, title, description, children, size 
     };
   }, [open, onOpenChange]);
 
-  if (!open) return null;
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true">
+  if (!open || !mounted) return null;
+
+  // Portail vers <body> : la modale échappe au contexte d'empilement de <main>
+  // et passe toujours au-dessus de l'en-tête et de la barre d'onglets mobile.
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true">
       {/* Backdrop */}
       <div
         className="fixed inset-0 bg-slate-950/80 backdrop-blur-md animate-fade-up"
@@ -49,7 +55,7 @@ export function Dialog({ open, onOpenChange, title, description, children, size 
       {/* Modal Dialog Box */}
       <div
         className={cn(
-          "relative flex w-full max-h-[92dvh] flex-col rounded-t-3xl border border-slate-800 bg-slate-900/95 shadow-2xl shadow-indigo-500/10 backdrop-blur-xl animate-fade-up sm:rounded-2xl",
+          "relative flex w-full max-h-[92dvh] flex-col overscroll-contain rounded-t-3xl border border-slate-800 bg-slate-900/95 shadow-2xl shadow-indigo-500/10 backdrop-blur-xl animate-fade-up sm:rounded-2xl",
           size === "lg" ? "sm:max-w-2xl" : "sm:max-w-md"
         )}
       >
@@ -72,6 +78,7 @@ export function Dialog({ open, onOpenChange, title, description, children, size 
 
         <div className="mt-5 overflow-y-auto px-5 pb-[calc(1.25rem+var(--safe-bottom))] sm:px-6 sm:pb-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

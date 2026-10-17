@@ -64,6 +64,11 @@
     outline-offset: 2px;
   }
 
+  input[type="search"]::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
   /* iOS : pas de zoom automatique au focus si la police fait ≥ 16px */
   @media (max-width: 639px) {
     input,
@@ -178,7 +183,42 @@ body::after {
   }
 }
 
-/* La messagerie occupe tout l'écran : pas de réserve pour la barre d'onglets mobile */
+/* ==========================================================
+   Messagerie mobile (comportement "app native")
+   body[data-chat] est posé par la page /messages :
+   - "list" : liste des salons/contacts → en-tête + barre d'onglets visibles
+   - "open" : conversation ouverte → plein écran, seul l'en-tête du chat reste
+   ========================================================== */
 main:has(.chat-shell) {
   padding-bottom: 0 !important;
+}
+
+@media (max-width: 767px) {
+  body[data-chat="list"] .chat-shell {
+    height: calc(100dvh - var(--header-h) - var(--safe-top) - var(--bottom-nav-h) - var(--safe-bottom));
+  }
+}
+
+@media (max-width: 1023px) {
+  body[data-chat="open"] .app-header,
+  body[data-chat="open"] .mobile-tabbar {
+    display: none;
+  }
+  body[data-chat="open"] .chat-shell {
+    height: 100dvh;
+  }
+  body[data-chat="open"] .chat-top {
+    padding-top: calc(0.625rem + var(--safe-top));
+  }
+}
+
+/* Réactivité tactile : pas de délai de double-tap, pas de sélection accidentelle */
+@media (hover: none) {
+  a,
+  button,
+  [role="button"] {
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+  }
 }

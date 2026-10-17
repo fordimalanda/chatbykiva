@@ -22,6 +22,7 @@ import {
   Database,
   Radio,
   Sparkles,
+  X,
 } from "lucide-react";
 
 export default function FriendsPage() {
@@ -167,38 +168,40 @@ export default function FriendsPage() {
       </div>
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between md:gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-              Communauté & Amis
-            </h1>
-            <Badge variant="default" className="font-mono text-xs">
+            <h1 className="text-2xl font-black tracking-tight text-white sm:text-3xl">Communauté</h1>
+            <Badge variant="default" className="hidden font-mono text-xs sm:inline-flex">
               scan(user:*)
             </Badge>
           </div>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Découvrez tous les utilisateurs enregistrés dans le workspace{" "}
-            <span className="font-mono text-indigo-400 font-semibold">social_app</span> de KivaDB.
+          <p className="mt-1 text-sm text-slate-400">
+            <span className="sm:hidden">Trouvez et suivez les membres.</span>
+            <span className="hidden sm:inline">
+              Tous les membres enregistrés dans le workspace{" "}
+              <span className="font-mono font-semibold text-indigo-400">social_app</span> de KivaDB.
+            </span>
           </p>
         </div>
 
         {/* Search Input */}
-        <div className="w-full md:w-80 relative">
+        <div className="relative w-full md:w-80">
           <Input
-            type="text"
-            placeholder="Rechercher par nom, @..."
+            type="search"
+            placeholder="Rechercher un membre…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-9 pr-8 bg-slate-900/80 border-slate-700/80"
+            className="h-11 rounded-full border-slate-700/80 bg-slate-900/80 pl-10 pr-10"
           />
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           {searchTerm && (
             <button
               onClick={() => setSearchTerm("")}
-              className="absolute right-2.5 top-3 text-xs text-slate-400 hover:text-white"
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-800 hover:text-white"
+              aria-label="Effacer la recherche"
             >
-              ✕
+              <X className="h-3.5 w-3.5" />
             </button>
           )}
         </div>
@@ -226,19 +229,27 @@ export default function FriendsPage() {
 
       {/* Users Grid */}
       {loading ? (
-        <div className="min-h-[40vh] flex items-center justify-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-indigo-500 border-t-transparent" />
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="flex items-center gap-3 rounded-2xl border border-slate-800/80 bg-slate-900/60 p-4">
+              <div className="skeleton h-14 w-14 rounded-full" />
+              <div className="flex-1 space-y-2">
+                <div className="skeleton h-3 w-1/2" />
+                <div className="skeleton h-2.5 w-1/3" />
+              </div>
+            </div>
+          ))}
         </div>
       ) : filteredUsers.length === 0 ? (
-        <Card className="text-center py-16 text-slate-400">
-          <Users className="h-12 w-12 text-slate-600 mx-auto mb-3" />
-          <p className="text-lg font-bold text-white">Aucun utilisateur trouvé</p>
-          <p className="text-sm text-slate-400 mt-1">
-            {searchTerm ? "Aucun profil ne correspond à votre recherche." : "La base KivaDB ne contient aucun autre utilisateur."}
+        <Card className="py-14 text-center text-slate-400">
+          <Users className="mx-auto mb-3 h-10 w-10 text-slate-600" />
+          <p className="text-base font-bold text-white">Aucun membre trouvé</p>
+          <p className="mt-1 text-sm text-slate-400">
+            {searchTerm ? "Aucun profil ne correspond à votre recherche." : "Aucun membre dans ce filtre pour le moment."}
           </p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
           {filteredUsers.map((member) => {
             const isMe = user?.username === member.username;
             const isPending = followLoading[member.username];
@@ -246,113 +257,70 @@ export default function FriendsPage() {
             return (
               <Card
                 key={member.username}
-                className="group flex flex-col justify-between border-slate-800/80 p-4 shadow-xl transition-all hover:border-slate-700/80 sm:p-5"
+                className="flex flex-col gap-3 border-slate-800/80 p-4 transition-colors hover:border-slate-700/80"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-3 mb-4">
-                    <Link
-                      href={`/profile/${member.username}`}
-                      className="flex items-center gap-3 group-hover:opacity-90 transition-opacity"
-                    >
-                      <Avatar src={member.avatar} fallback={member.username} size="lg" online={isOnline(member.username)} />
-                      <div>
-                        <h3 className="font-bold text-white text-base leading-tight group-hover:text-indigo-300 transition-colors">
-                          {member.displayName}
-                        </h3>
-                        <p className="text-xs text-indigo-400 font-mono">@{member.username}</p>
-                      </div>
-                    </Link>
-
-                    {isMe ? (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Vous
-                      </Badge>
-                    ) : member.followsYou ? (
-                      <div className="flex items-center gap-1.5">
-                        <Badge variant="secondary" className="text-[10px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
-                          Vous suit
+                <div className="flex items-start gap-3">
+                  <Link href={`/profile/${member.username}`} className="shrink-0">
+                    <Avatar src={member.avatar} fallback={member.username} size="lg" online={isOnline(member.username)} />
+                  </Link>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Link
+                        href={`/profile/${member.username}`}
+                        className="truncate text-[15px] font-bold leading-tight text-white hover:text-indigo-300"
+                      >
+                        {member.displayName}
+                      </Link>
+                      {isMe ? (
+                        <Badge variant="secondary" className="shrink-0 px-2 py-0 text-[10px]">Vous</Badge>
+                      ) : member.followsYou ? (
+                        <Badge variant="secondary" className="shrink-0 border border-indigo-500/30 bg-indigo-500/15 px-2 py-0 text-[10px] text-indigo-300">
+                          {member.isFollowing ? "Ami" : "Vous suit"}
                         </Badge>
-                        <Badge variant="outline" className="font-mono text-[10px] hidden sm:inline-flex">
-                          user:{member.username}
-                        </Badge>
-                      </div>
-                    ) : (
-                      <Badge variant="outline" className="font-mono text-[10px]">
-                        user:{member.username}
-                      </Badge>
-                    )}
-                  </div>
-
-                  <p className="text-xs text-slate-400 line-clamp-2 min-h-[32px] mb-4">
-                    {member.bio || "Membre actif de KivaSocial."}
-                  </p>
-
-                  {/* Counters */}
-                  <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-900/80 border border-slate-800 mb-4 text-center">
-                    <div>
-                      <div className="text-base font-extrabold text-white">
-                        {member.followersCount}
-                      </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        Abonnés
-                      </div>
+                      ) : null}
                     </div>
-                    <div>
-                      <div className="text-base font-extrabold text-white">
-                        {member.followingCount}
-                      </div>
-                      <div className="text-[10px] text-slate-400 uppercase tracking-wider">
-                        Abonnements
-                      </div>
-                    </div>
+                    <p className="truncate font-mono text-xs text-indigo-400">@{member.username}</p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      <strong className="font-semibold text-slate-200">{member.followersCount}</strong> abonné{member.followersCount > 1 ? "s" : ""}
+                      <span className="mx-1.5 text-slate-600">·</span>
+                      <strong className="font-semibold text-slate-200">{member.followingCount}</strong> abonnement{member.followingCount > 1 ? "s" : ""}
+                    </p>
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center gap-2 pt-3 border-t border-slate-800/80">
+                {member.bio && <p className="line-clamp-2 text-sm leading-snug text-slate-300">{member.bio}</p>}
+
+                <div className="mt-auto flex items-center gap-2">
                   {!isMe ? (
                     <>
                       <Button
                         variant={member.isFollowing ? "outline" : "default"}
                         size="sm"
-                        className={`flex-1 gap-1.5 transition-all ${
-                          member.isFollowing
-                            ? "hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
-                            : member.followsYou
-                            ? "bg-gradient-to-r from-purple-600 to-indigo-600 shadow-md shadow-purple-500/20"
-                            : ""
-                        }`}
+                        className={cn(
+                          "h-9 flex-1 gap-1.5",
+                          member.isFollowing && "hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
+                        )}
                         onClick={() => handleToggleFollow(member.username)}
                         isLoading={isPending}
                       >
-                        {member.isFollowing ? (
-                          <>
+                        {!isPending &&
+                          (member.isFollowing ? (
                             <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
-                            Abonné
-                          </>
-                        ) : member.followsYou ? (
-                          <>
-                            <UserPlus className="h-3.5 w-3.5 text-white" />
-                            Suivre en retour
-                          </>
-                        ) : (
-                          <>
+                          ) : (
                             <UserPlus className="h-3.5 w-3.5" />
-                            Suivre
-                          </>
-                        )}
+                          ))}
+                        {member.isFollowing ? "Abonné" : member.followsYou ? "Suivre en retour" : "Suivre"}
                       </Button>
-
-                      <Link href={`/messages?with=${member.username}`}>
-                        <Button variant="secondary" size="icon" className="h-8 w-8" title="Message">
-                          <MessageSquare className="h-3.5 w-3.5 text-slate-300" />
+                      <Link href={`/messages?with=${member.username}`} aria-label={`Écrire à ${member.displayName}`}>
+                        <Button variant="secondary" size="icon" className="h-9 w-9">
+                          <MessageSquare className="h-4 w-4 text-slate-300" />
                         </Button>
                       </Link>
                     </>
                   ) : (
                     <Link href={`/profile/${member.username}`} className="w-full">
-                      <Button variant="outline" size="sm" className="w-full">
-                        Mon profil
+                      <Button variant="outline" size="sm" className="h-9 w-full">
+                        Voir mon profil
                       </Button>
                     </Link>
                   )}

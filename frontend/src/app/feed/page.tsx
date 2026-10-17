@@ -32,6 +32,7 @@ export default function FeedPage() {
   const [sending, setSending] = useState(false);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const [freshCount, setFreshCount] = useState(0);
+  const [composerFocused, setComposerFocused] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) router.push("/login");
@@ -144,6 +145,8 @@ export default function FeedPage() {
   }
 
   const remaining = MAX_POST - newContent.length;
+  const firstName = (user.displayName || user.username).split(" ")[0];
+  const composerOpen = composerFocused || newContent.length > 0;
   const onlineFriends = Array.from(onlineUsers).filter((u) => u !== user.username);
 
   return (
@@ -202,15 +205,17 @@ export default function FeedPage() {
               <Avatar src={user.avatar} fallback={user.username} size="md" className="hidden xs:flex" />
               <div className="min-w-0 flex-1">
                 <textarea
-                  rows={newContent ? 4 : 2}
+                  rows={composerOpen ? 4 : 1}
                   maxLength={MAX_POST}
-                  placeholder={`Quoi de neuf, ${user.displayName || user.username} ? Utilisez #hashtags et @mentions`}
+                  placeholder={`Quoi de neuf, ${firstName} ?`}
                   value={newContent}
+                  onFocus={() => setComposerFocused(true)}
+                  onBlur={() => setComposerFocused(false)}
                   onChange={(e) => setNewContent(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleCreatePost(e);
                   }}
-                  className="w-full resize-none rounded-xl border border-slate-700/80 bg-slate-950/70 p-3 text-sm text-slate-100 transition-all placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/70"
+                  className="block min-h-[44px] w-full resize-none rounded-xl border border-slate-700/80 bg-slate-950/70 px-3.5 py-2.5 text-sm leading-6 text-slate-100 transition-all placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/70"
                 />
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <span
@@ -220,7 +225,7 @@ export default function FeedPage() {
                       remaining < 0 && "text-rose-400"
                     )}
                   >
-                    {newContent ? `${remaining} caractères restants` : "Ctrl + Entrée pour publier"}
+                    {newContent ? `${remaining} caractères restants` : composerOpen ? "#hashtags · @mentions" : "Partagez une actualité"}
                   </span>
                   <Button type="submit" size="sm" className="gap-2" isLoading={sending} disabled={!newContent.trim()}>
                     <Send className="h-3.5 w-3.5" />
@@ -278,6 +283,49 @@ export default function FeedPage() {
             </button>
           )}
 
+          {/* Découverte mobile/tablette : tendances + suggestions en défilement horizontal */}
+          {(trending.length > 0 || suggestions.length > 0) && !tag && (
+            <div className="space-y-3 xl:hidden">
+              {trending.length > 0 && (
+                <div className="scrollbar-none -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:px-0">
+                  <span className="flex shrink-0 items-center gap-1 text-xs font-semibold text-slate-400">
+                    <TrendingUp className="h-3.5 w-3.5 text-indigo-400" /> Tendances
+                  </span>
+                  {trending.map((t) => (
+                    <button
+                      key={t.tag}
+                      onClick={() => selectTag(t.tag)}
+                      className="shrink-0 rounded-full border border-slate-700 bg-slate-800/60 px-3 py-1.5 text-xs font-semibold text-slate-200 active:scale-95"
+                    >
+                      #{t.tag}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {suggestions.length > 0 && (
+                <div className="scrollbar-none -mx-3 flex snap-x snap-mandatory scroll-px-3 gap-3 overflow-x-auto px-3 pb-1 sm:mx-0 sm:scroll-px-0 sm:px-0">
+                  {suggestions.map((s) => (
+                    <div
+                      key={s.username}
+                      className="flex w-36 shrink-0 snap-start flex-col items-center rounded-2xl border border-slate-800/80 bg-slate-900/70 p-3 text-center"
+                    >
+                      <Link href={`/profile/${s.username}`} className="flex min-w-0 flex-col items-center">
+                        <Avatar src={s.avatar} fallback={s.username} size="lg" online={isOnline(s.username)} />
+                        <p className="mt-2 w-full truncate text-xs font-bold text-white">{s.displayName}</p>
+                        <p className="w-full truncate text-[10px] text-slate-400">
+                          {s.mutualCount > 0 ? `${s.mutualCount} ami${s.mutualCount > 1 ? "s" : ""} en commun` : `@${s.username}`}
+                        </p>
+                      </Link>
+                      <Button size="sm" className="mt-2.5 h-8 w-full text-xs" onClick={() => handleFollowSuggestion(s.username)}>
+                        Suivre
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {postsLoading ? (
             <div className="space-y-4">
               {[0, 1, 2].map((i) => (
@@ -331,7 +379,7 @@ export default function FeedPage() {
         </section>
 
         {/* Right column: trending + suggestions */}
-        <aside className="space-y-5 lg:col-start-2 xl:col-start-auto">
+        <aside className="hidden space-y-5 xl:block">
           {trending.length > 0 && (
             <Card className="p-4">
               <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-300">

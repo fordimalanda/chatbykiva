@@ -162,11 +162,11 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
   const online = isMe || isOnline(targetUsername);
   const isMutual = profile.isFollowing && profile.followsYou;
 
-  const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "posts", label: `Publications (${posts.length})` },
-    { id: "followers", label: `Abonnés (${profile.followersCount})` },
-    { id: "following", label: `Abonnements (${profile.followingCount})` },
-    { id: "kivadb", label: "Document KivaDB" },
+  const tabs: Array<{ id: Tab; label: string; short: string }> = [
+    { id: "posts", label: "Publications", short: "Posts" },
+    { id: "followers", label: "Abonnés", short: "Abonnés" },
+    { id: "following", label: "Abonnements", short: "Suivis" },
+    { id: "kivadb", label: "Document KivaDB", short: "JSON" },
   ];
 
   const renderUserList = (usernames: string[], empty: string) =>
@@ -196,10 +196,10 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
   return (
     <div className="page-container max-w-5xl space-y-5">
       {/* Profile Header Card */}
-      <Card className="relative overflow-hidden p-0">
-        <div className="relative h-32 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 sm:h-44">
+      <Card className="relative -mx-3 -mt-4 overflow-hidden rounded-none border-x-0 border-t-0 p-0 sm:mx-0 sm:mt-0 sm:rounded-2xl sm:border">
+        <div className="relative h-28 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 sm:h-44">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.18),transparent_55%)]" />
-          <Link href="/friends" className="absolute left-3 top-3 sm:left-4 sm:top-4">
+          <Link href="/friends" className="absolute left-3 top-3 sm:left-4 sm:top-4" aria-label="Retour à la communauté">
             <Button variant="secondary" size="sm" className="gap-1.5 bg-slate-900/60 text-xs backdrop-blur-md">
               <ArrowLeft className="h-3.5 w-3.5" />
               <span className="hidden xs:inline">Communauté</span>
@@ -208,58 +208,41 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         </div>
 
         <div className="relative px-4 pb-5 sm:px-6">
-          <div className="-mt-12 flex flex-col gap-4 sm:-mt-14 sm:flex-row sm:items-end sm:justify-between">
-            <div className="flex items-end gap-4">
-              <Avatar
-                src={profile.avatar}
-                fallback={profile.username}
-                size="xl"
-                className="h-24 w-24 text-3xl ring-4 ring-slate-950 sm:h-28 sm:w-28"
-              />
-              <div className="min-w-0 pb-1">
-                <h1 className="truncate text-xl font-black tracking-tight text-white sm:text-3xl">{profile.displayName}</h1>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                  <span className="font-mono text-indigo-400">@{profile.username}</span>
-                  <span className={cn("flex items-center gap-1.5 text-xs", online ? "text-emerald-400" : "text-slate-500")}>
-                    <span className={cn("h-1.5 w-1.5 rounded-full", online ? "bg-emerald-400" : "bg-slate-500")} />
-                    {lastSeenLabel(online, lastSeen[targetUsername])}
-                  </span>
-                  {profile.followsYou && !isMe && (
-                    <Badge variant="secondary" className="text-[10px]">
-                      {isMutual ? "Ami mutuel" : "Vous suit"}
-                    </Badge>
-                  )}
-                </div>
-              </div>
-            </div>
+          {/* Ligne avatar + actions (l'avatar chevauche la bannière) */}
+          <div className="flex items-end justify-between gap-3">
+            <Avatar
+              src={profile.avatar}
+              fallback={profile.username}
+              size="xl"
+              className="-mt-12 h-24 w-24 text-3xl ring-4 ring-slate-950 sm:-mt-14 sm:h-28 sm:w-28"
+            />
 
-            {/* Actions */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex shrink-0 items-center gap-2 pt-3">
               {!isMe ? (
                 <>
+                  <Link href={`/messages?with=${profile.username}`} aria-label="Envoyer un message">
+                    <Button variant="secondary" size="icon" className="h-10 w-10 rounded-full sm:w-auto sm:rounded-lg sm:px-4">
+                      <MessageSquare className="h-4 w-4" />
+                      <span className="hidden sm:inline">Message</span>
+                    </Button>
+                  </Link>
                   <Button
                     variant={profile.isFollowing ? "outline" : "default"}
-                    className={cn("flex-1 gap-2 sm:flex-initial", profile.isFollowing && "hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400")}
+                    className={cn(
+                      "h-10 gap-2 rounded-full px-4 sm:rounded-lg",
+                      profile.isFollowing && "hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-400"
+                    )}
                     onClick={handleToggleFollow}
                     isLoading={followLoading}
                   >
-                    {profile.isFollowing ? <UserCheck className="h-4 w-4 text-emerald-400" /> : <UserPlus className="h-4 w-4" />}
+                    {!followLoading &&
+                      (profile.isFollowing ? <UserCheck className="h-4 w-4 text-emerald-400" /> : <UserPlus className="h-4 w-4" />)}
                     {profile.isFollowing ? "Abonné" : profile.followsYou ? "Suivre en retour" : "Suivre"}
                   </Button>
-                  <Link href={`/messages?with=${profile.username}`} className="flex-1 sm:flex-initial">
-                    <Button variant="secondary" className="w-full gap-2">
-                      <MessageSquare className="h-4 w-4" />
-                      Message
-                    </Button>
-                  </Link>
                 </>
               ) : (
                 <>
-                  <Button variant="secondary" className="flex-1 gap-2 sm:flex-initial" onClick={() => setEditOpen(true)}>
-                    <Pencil className="h-4 w-4" />
-                    Modifier le profil
-                  </Button>
-                  <Button variant="outline" size="icon" onClick={() => setPasswordOpen(true)} aria-label="Changer le mot de passe">
+                  <Button variant="outline" size="icon" className="h-10 w-10 rounded-full" onClick={() => setPasswordOpen(true)} aria-label="Changer le mot de passe">
                     <KeyRound className="h-4 w-4" />
                   </Button>
                   <Button
@@ -267,16 +250,37 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
                     size="icon"
                     onClick={() => confirm("Se déconnecter de KivaSocial ?") && logout()}
                     aria-label="Se déconnecter"
-                    className="hover:border-rose-500/50 hover:text-rose-400"
+                    className="h-10 w-10 rounded-full hover:border-rose-500/50 hover:text-rose-400"
                   >
                     <LogOut className="h-4 w-4" />
+                  </Button>
+                  <Button variant="secondary" className="h-10 gap-2 rounded-full px-4 sm:rounded-lg" onClick={() => setEditOpen(true)}>
+                    <Pencil className="h-4 w-4" />
+                    Modifier
                   </Button>
                 </>
               )}
             </div>
           </div>
 
-          <p className="mt-4 max-w-2xl whitespace-pre-wrap text-sm leading-relaxed text-slate-300">
+          {/* Identité : le nom complet passe à la ligne au lieu d'être tronqué */}
+          <div className="mt-3">
+            <h1 className="break-words text-xl font-black leading-tight tracking-tight text-white sm:text-3xl">{profile.displayName}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span className="font-mono text-indigo-400">@{profile.username}</span>
+              <span className={cn("flex items-center gap-1.5 text-xs", online ? "text-emerald-400" : "text-slate-500")}>
+                <span className={cn("h-1.5 w-1.5 rounded-full", online ? "bg-emerald-400" : "bg-slate-500")} />
+                {lastSeenLabel(online, lastSeen[targetUsername])}
+              </span>
+              {profile.followsYou && !isMe && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {isMutual ? "Ami mutuel" : "Vous suit"}
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          <p className="mt-3 max-w-2xl whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-300">
             {profile.bio || "Aucune biographie renseignée pour le moment."}
           </p>
           <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500">
@@ -284,7 +288,7 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
             Membre depuis le {formatDate(profile.createdAt)}
           </p>
 
-          <div className="mt-4 grid max-w-md grid-cols-3 gap-2 text-center">
+          <div className="mt-4 grid max-w-md grid-cols-3 gap-2 text-center sm:gap-3">
             {[
               { label: "Publications", value: posts.length, tab: "posts" as Tab },
               { label: "Abonnés", value: profile.followersCount, tab: "followers" as Tab },
@@ -303,18 +307,19 @@ export default function ProfilePage({ params }: { params: Promise<{ username: st
         </div>
 
         {/* Tabs */}
-        <div className="scrollbar-none flex overflow-x-auto border-t border-slate-800/80 bg-slate-900/40 px-2 sm:px-4">
+        <div className="grid grid-cols-4 border-t border-slate-800/80 bg-slate-900/40 sm:flex sm:px-4">
           {tabs.map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(t.id)}
               className={cn(
-                "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-3.5 text-xs font-bold uppercase tracking-wider transition-colors sm:px-4",
+                "flex items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-1 py-3.5 text-[13px] font-semibold transition-colors sm:px-4 sm:text-xs sm:font-bold sm:uppercase sm:tracking-wider",
                 activeTab === t.id ? "border-indigo-500 text-white" : "border-transparent text-slate-400 hover:text-slate-200"
               )}
             >
-              {t.id === "kivadb" && <Code className="h-3.5 w-3.5 text-indigo-400" />}
-              {t.label}
+              {t.id === "kivadb" && <Code className="hidden h-3.5 w-3.5 text-indigo-400 sm:block" />}
+              <span className="sm:hidden">{t.short}</span>
+              <span className="hidden sm:inline">{t.label}</span>
             </button>
           ))}
         </div>

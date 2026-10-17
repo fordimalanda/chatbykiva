@@ -26,7 +26,7 @@ export default function Home() {
   }
 
   return (
-    <div className="relative overflow-hidden py-16 sm:py-24">
+    <div className="relative overflow-hidden py-10 sm:py-24">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center space-y-8 max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
@@ -34,28 +34,28 @@ export default function Home() {
             Workspace KivaDB &ldquo;social_app&rdquo;
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-black tracking-tight text-white">
+          <h1 className="text-[2rem] leading-[1.1] xs:text-4xl sm:text-6xl font-black tracking-tight text-white text-balance">
             Le Réseau Social Temps Réel Propulsé par{" "}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
               KivaDB
             </span>
           </h1>
 
-          <p className="text-lg text-slate-400 max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg text-slate-400 max-w-2xl mx-auto">
             Une architecture moderne complète avec NestJS, Next.js et la puissance
             de la base de données NoSQL KivaDB. Suivez vos amis, chattez instantanément
             et profitez des flux WebSockets en direct.
           </p>
 
-          <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
-            <Link href="/register">
-              <Button size="lg" className="gap-2 shadow-xl shadow-indigo-500/20">
+          <div className="mx-auto flex max-w-sm flex-col items-stretch justify-center gap-3 pt-4 xs:max-w-none xs:flex-row xs:items-center">
+            <Link href="/register" className="w-full xs:w-auto">
+              <Button size="lg" className="w-full gap-2 shadow-xl shadow-indigo-500/20">
                 Créer un compte
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
-            <Link href="/login">
-              <Button size="lg" variant="outline">
+            <Link href="/login" className="w-full xs:w-auto">
+              <Button size="lg" variant="outline" className="w-full">
                 Se connecter
               </Button>
             </Link>
@@ -63,8 +63,8 @@ export default function Home() {
         </div>
 
         {/* Feature Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-20">
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm">
+        <div className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-3 mt-12 sm:mt-20">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6 backdrop-blur-sm">
             <div className="h-12 w-12 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center mb-4">
               <Database className="h-6 w-6 text-indigo-400" />
             </div>
@@ -75,7 +75,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6 backdrop-blur-sm">
             <div className="h-12 w-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
               <Zap className="h-6 w-6 text-purple-400" />
             </div>
@@ -86,7 +86,7 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-6 backdrop-blur-sm">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-5 sm:p-6 backdrop-blur-sm">
             <div className="h-12 w-12 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center mb-4">
               <Users className="h-6 w-6 text-pink-400" />
             </div>

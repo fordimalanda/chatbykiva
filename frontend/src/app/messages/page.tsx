@@ -77,6 +77,8 @@ function ChatInner() {
   const [typingUsers, setTypingUsers] = useState<Record<string, number>>({});
   const typingSentRef = useRef<{ to: string; at: number } | null>(null);
   const scrollBoxRef = useRef<HTMLDivElement>(null);
+  // Message dont les actions sont affichées (appui sur mobile, survol sur desktop)
+  const [actionMsgId, setActionMsgId] = useState<string | null>(null);
   const [communities, setCommunities] = useState<CommunityItem[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string>("comm-general");
   const [salonsMap, setSalonsMap] = useState<Record<string, SalonItem[]>>({});
@@ -586,6 +588,14 @@ function ChatInner() {
         )
       : [];
 
+  // Mode d'affichage mobile exposé au CSS global : liste (avec barre d'onglets) ou conversation plein écran
+  useEffect(() => {
+    document.body.dataset.chat = mobileView === "chat" ? "open" : "list";
+    return () => {
+      delete document.body.dataset.chat;
+    };
+  }, [mobileView]);
+
   // Expire les indicateurs de frappe périmés
   useEffect(() => {
     if (Object.keys(typingUsers).length === 0) return;
@@ -886,19 +896,12 @@ function ChatInner() {
           <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Link
-                  href="/feed"
-                  className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  title="Retour au fil d'actualité"
-                >
-                  <Home className="h-4 w-4" />
-                </Link>
-                <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-                  <MessageSquare className="h-4 w-4 text-indigo-400" />
-                  Communautés & Salons
+                <h2 className="text-lg sm:text-base font-bold text-white flex items-center gap-2">
+                  <MessageSquare className="hidden sm:block h-4 w-4 text-indigo-400" />
+                  Discussions
                 </h2>
               </div>
-              <Badge variant={connected ? "live" : "secondary"}>
+              <Badge variant={connected ? "live" : "secondary"} className="hidden sm:inline-flex">
                 {connected ? "KivaDB WS" : "Hors-ligne"}
               </Badge>
             </div>
@@ -1160,12 +1163,12 @@ function ChatInner() {
           }`}
         >
           {/* Header */}
-          <div className="p-3 sm:p-4 border-b border-slate-800/80 bg-slate-900/70 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="chat-top px-2 py-2.5 sm:p-4 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-xl flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
               {/* Mobile Back Button */}
               <button
                 onClick={() => setMobileView("contacts")}
-                className="lg:hidden p-1.5 -ml-1 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+                className="lg:hidden flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-200 hover:bg-slate-800 active:bg-slate-800 transition-colors"
                 title="Retour aux salons"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -1271,7 +1274,7 @@ function ChatInner() {
           </div>
 
           {/* Messages Feed */}
-          <div ref={scrollBoxRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/50">
+          <div ref={scrollBoxRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-2.5 py-3 sm:p-4 bg-slate-950/50" onClick={(e) => { if (e.target === e.currentTarget) setActionMsgId(null); }}>
             {hasMoreHistory && (
               <div className="flex justify-center">
                 <button
@@ -1308,64 +1311,89 @@ function ChatInner() {
                 const isMentioned = user && Array.isArray(m.mentions) && m.mentions.includes(user.username);
                 const displayName = m.fromDisplayName || m.from;
                 const prev = messages[index - 1];
+                const next = messages[index + 1];
                 const showDay = !prev || new Date(prev.timestamp).toDateString() !== new Date(m.timestamp).toDateString();
+                // Regroupement : même auteur, même jour, moins de 5 min d'écart
+                const sameGroup = (a?: ChatMessage, b?: ChatMessage) =>
+                  !!a && !!b && a.from === b.from && b.timestamp - a.timestamp < 5 * 60 * 1000 &&
+                  new Date(a.timestamp).toDateString() === new Date(b.timestamp).toDateString();
+                const isFirstInGroup = !sameGroup(prev, m);
+                const isLastInGroup = !sameGroup(m, next);
+                const showName = isSalon && !isSentByMe && isFirstInGroup;
+                const actionsOpen = actionMsgId === m.id;
 
                 return (
-                  <div key={m.id}>
+                  <div key={m.id} className={isFirstInGroup ? "mt-3 first:mt-0" : "mt-0.5"}>
                   {showDay && (
-                    <div className="my-2 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                      <span className="h-px flex-1 bg-slate-800" />
-                      {dayLabel(m.timestamp)}
-                      <span className="h-px flex-1 bg-slate-800" />
+                    <div className="mb-3 mt-1 flex justify-center">
+                      <span className="rounded-full bg-slate-800/80 px-3 py-1 text-[11px] font-semibold text-slate-300 shadow-sm">
+                        {dayLabel(m.timestamp)}
+                      </span>
                     </div>
                   )}
                   <div
-                    className={`group flex items-end gap-2 sm:gap-2.5 ${
+                    className={`group flex items-end gap-1.5 sm:gap-2.5 ${
                       isSentByMe ? "justify-end" : "justify-start"
                     }`}
                   >
                     {isSentByMe && !m.deleted && (
                       <button
-                        onClick={() => handleDeleteMessage(m)}
-                        className="mb-2 rounded-md p-1 text-slate-500 opacity-100 transition-opacity hover:text-rose-400 sm:opacity-0 sm:group-hover:opacity-100"
+                        onClick={() => {
+                          setActionMsgId(null);
+                          handleDeleteMessage(m);
+                        }}
+                        className={cn(
+                          "mb-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-400 transition-opacity hover:bg-rose-500/10 hover:text-rose-400",
+                          actionsOpen ? "opacity-100 bg-slate-800" : "pointer-events-none opacity-0 sm:pointer-events-auto sm:group-hover:opacity-100"
+                        )}
                         aria-label="Supprimer le message"
                         title="Supprimer pour tout le monde"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
-                    {!isSentByMe && (
-                      <Link
-                        href={`/profile/${m.from}`}
-                        className="shrink-0 mb-1 transition-transform hover:scale-105"
-                        title={`Voir le profil de ${displayName}`}
-                      >
-                        <Avatar
-                          src={m.fromAvatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${m.from}`}
-                          fallback={m.from}
-                          size="sm"
-                        />
-                      </Link>
-                    )}
+                    {!isSentByMe &&
+                      (isLastInGroup ? (
+                        <Link
+                          href={`/profile/${m.from}`}
+                          className="shrink-0 transition-transform hover:scale-105"
+                          title={`Voir le profil de ${displayName}`}
+                        >
+                          <Avatar
+                            src={m.fromAvatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${m.from}`}
+                            fallback={m.from}
+                            size="sm"
+                          />
+                        </Link>
+                      ) : (
+                        <span className="w-8 shrink-0" aria-hidden />
+                      ))}
 
                     <div
-                      className={`max-w-[82%] sm:max-w-[70%] min-w-0 rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm shadow-md transition-all ${
+                      onClick={() => isSentByMe && !m.deleted && setActionMsgId(actionsOpen ? null : m.id)}
+                      className={cn(
+                        "max-w-[80%] sm:max-w-[70%] min-w-0 rounded-[20px] px-3.5 py-2 sm:px-4 sm:py-2.5 text-[15px] sm:text-sm leading-snug shadow-sm transition-all",
                         isSentByMe
-                          ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-br-none"
+                          ? "bg-gradient-to-br from-indigo-600 to-violet-600 text-white"
                           : isMentioned
-                          ? "bg-slate-900 border-2 border-amber-500/80 text-slate-100 rounded-bl-none shadow-amber-500/10 shadow-lg"
-                          : "bg-slate-800/90 text-slate-100 border border-slate-700/60 rounded-bl-none"
-                      }`}
+                          ? "bg-slate-900 border-2 border-amber-500/80 text-slate-100"
+                          : "bg-slate-800 text-slate-100",
+                        isSentByMe ? (isLastInGroup ? "rounded-br-md" : "rounded-br-md rounded-tr-md") : isLastInGroup ? "rounded-bl-md" : "rounded-bl-md rounded-tl-md",
+                        isSentByMe && !isFirstInGroup && "rounded-tr-md",
+                        !isSentByMe && !isFirstInGroup && "rounded-tl-md",
+                        actionsOpen && "ring-2 ring-indigo-400/60"
+                      )}
                     >
-                      {/* Full Name & @Username */}
-                      <div className="flex items-center justify-between gap-2 mb-1">
+                      {/* Nom de l'auteur : seulement en salon, en tête de groupe */}
+                      {(showName || (isMentioned && !isSentByMe)) && (
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
                         <Link
                           href={`/profile/${m.from}`}
                           className="flex items-center gap-1.5 flex-wrap group transition-colors"
                           title={`Accéder au profil de @${m.from}`}
                         >
                           <span
-                            className={`font-bold text-xs sm:text-sm group-hover:underline ${
+                            className={`font-bold text-[13px] sm:text-sm group-hover:underline ${
                               isSentByMe
                                 ? "text-indigo-100 group-hover:text-white"
                                 : "text-indigo-300 group-hover:text-indigo-200"
@@ -1374,17 +1402,18 @@ function ChatInner() {
                             {displayName}
                           </span>
                           {!isSentByMe && (
-                            <span className="text-[10px] text-slate-400 font-mono group-hover:text-slate-300">
+                            <span className="hidden sm:inline text-[10px] text-slate-400 font-mono group-hover:text-slate-300">
                               @{m.from}
                             </span>
                           )}
                         </Link>
                         {isMentioned && !isSentByMe && (
                           <Badge variant="warning" className="text-[9px] px-1.5 py-0 h-4">
-                            @Vous mentionne
+                            @Vous
                           </Badge>
                         )}
                       </div>
+                      )}
 
                       {m.deleted && (
                         <p className="italic text-xs sm:text-sm opacity-70">🚫 Ce message a été supprimé</p>
@@ -1392,7 +1421,7 @@ function ChatInner() {
 
                       {/* Text Content */}
                       {m.content && (
-                        <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
+                        <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                           {renderMessageContent(m.content, isSentByMe)}
                         </p>
                       )}

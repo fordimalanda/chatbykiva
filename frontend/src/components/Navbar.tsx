@@ -110,14 +110,14 @@ export function Navbar() {
   return (
     <>
       {/* Top header */}
-      <header className="sticky top-0 z-40 w-full border-b border-slate-800/70 bg-slate-950/80 pt-[var(--safe-top)] backdrop-blur-xl">
+      <header className="app-header sticky top-0 z-40 w-full border-b border-slate-800/70 bg-slate-950/80 pt-[var(--safe-top)] backdrop-blur-xl">
         <div className="mx-auto flex h-[var(--header-h)] max-w-7xl items-center justify-between gap-3 px-3 sm:px-6 lg:px-8">
           {/* Brand */}
           <Link href={user ? "/feed" : "/"} className="group flex min-w-0 items-center gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 shadow-lg shadow-indigo-500/25 transition-transform group-hover:scale-105">
               <Database className="h-[18px] w-[18px] text-white" />
             </div>
-            <div className="hidden min-w-0 xs:block md:hidden lg:block">
+            <div className="hidden min-w-0 min-[340px]:block md:hidden lg:block">
               <div className="flex items-center gap-1.5">
                 <span className="bg-gradient-to-r from-white via-indigo-100 to-indigo-300 bg-clip-text text-base font-extrabold text-transparent sm:text-lg">
                   KivaSocial
@@ -160,7 +160,10 @@ export function Navbar() {
           {/* Right Area */}
           <div className="flex items-center gap-1 sm:gap-2">
             <div
-              className="flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-900/90 px-2.5 py-1"
+              className={cn(
+                "items-center gap-2 rounded-full border border-slate-800/80 bg-slate-900/90 px-2 py-1.5 sm:px-2.5 sm:py-1",
+                user ? "flex" : "hidden sm:flex"
+              )}
               title={connected ? "Connecté au flux temps réel KivaDB" : "Reconnexion en cours..."}
             >
               <span className="relative flex h-2 w-2">
@@ -171,7 +174,7 @@ export function Navbar() {
                   className={cn("relative inline-flex h-2 w-2 rounded-full", connected ? "bg-emerald-500" : "bg-amber-500")}
                 />
               </span>
-              <span className="text-[11px] font-medium text-slate-300">
+              <span className="hidden text-[11px] font-medium text-slate-300 sm:inline">
                 <span className="hidden whitespace-nowrap lg:inline">{connected ? "KivaDB Live" : "Connexion..."}</span>
                 <span className="whitespace-nowrap lg:hidden">{connected ? "Live" : "…"}</span>
               </span>
@@ -228,9 +231,9 @@ export function Navbar() {
         </div>
       </header>
 
-      {/* Mobile bottom tab bar (masquée dans la messagerie plein écran) */}
-      {user && pathname !== "/messages" && (
-        <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-800/80 bg-slate-950/90 pb-[var(--safe-bottom)] backdrop-blur-2xl md:hidden">
+      {/* Mobile bottom tab bar (masquée quand une conversation est ouverte, cf. body[data-chat]) */}
+      {user && (
+        <nav className="mobile-tabbar fixed inset-x-0 bottom-0 z-40 border-t border-slate-800/80 bg-slate-950/90 pb-[var(--safe-bottom)] backdrop-blur-2xl md:hidden">
           <div className="mx-auto grid h-[var(--bottom-nav-h)] max-w-md grid-cols-5 items-center px-1">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -240,7 +243,7 @@ export function Navbar() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium transition-colors",
+                    "flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium transition-[color,transform] active:scale-95",
                     isActive ? "text-indigo-300" : "text-slate-400 active:text-white"
                   )}
                 >
@@ -256,7 +259,7 @@ export function Navbar() {
             <button
               type="button"
               onClick={() => setNotificationsModalOpen(true)}
-              className="flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium text-slate-400 active:text-white"
+              className="flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium text-slate-400 transition-transform active:scale-95 active:text-white"
             >
               <span className="relative rounded-full px-4 py-1">
                 <Bell className="h-5 w-5" />
@@ -268,14 +271,14 @@ export function Navbar() {
             <Link
               href={`/profile/${user.username}`}
               className={cn(
-                "flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium transition-colors",
-                pathname.startsWith("/profile") ? "text-indigo-300" : "text-slate-400 active:text-white"
+                "flex flex-col items-center gap-1 py-1.5 text-[10px] font-medium transition-[color,transform] active:scale-95",
+                pathname === `/profile/${user.username}` ? "text-indigo-300" : "text-slate-400 active:text-white"
               )}
             >
               <span
                 className={cn(
                   "relative rounded-full px-4 py-1 transition-colors",
-                  pathname.startsWith("/profile") && "bg-indigo-500/15"
+                  pathname === `/profile/${user.username}` && "bg-indigo-500/15"
                 )}
               >
                 <User className="h-5 w-5" />

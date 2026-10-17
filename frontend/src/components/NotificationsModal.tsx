@@ -189,17 +189,9 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1 mb-0.5">
-                    <p className="text-xs font-bold text-white truncate">
-                      {notif.title}
-                    </p>
-                    <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                      {timeAgo(notif.createdAt)}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-300 leading-snug break-words">
-                    {notif.message}
-                  </p>
+                  <p className="line-clamp-2 text-[13px] font-bold leading-snug text-white">{notif.title}</p>
+                  <p className="mt-0.5 line-clamp-2 break-words text-[13px] leading-snug text-slate-300">{notif.message}</p>
+                  <span className="mt-1 block text-[11px] text-slate-500">{timeAgo(notif.createdAt)}</span>
                 </div>
 
                 {/* Unread dot */}
