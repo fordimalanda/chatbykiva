@@ -1,9 +1,9 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
 import { useAuth } from "./AuthContext";
-import { getBackendUrl } from "@/lib/api";
+import { api, getBackendUrl } from "@/lib/api";
 
 export interface KivaEventData {
   event: string;
@@ -17,32 +17,49 @@ interface SocketContextType {
   socket: Socket | null;
   connected: boolean;
   recentEvents: KivaEventData[];
+  onlineUsers: Set<string>;
+  lastSeen: Record<string, number>;
+  isOnline: (username?: string) => boolean;
 }
 
 const SocketContext = createContext<SocketContextType>({
   socket: null,
   connected: false,
   recentEvents: [],
+  onlineUsers: new Set(),
+  lastSeen: {},
+  isOnline: () => false,
 });
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [connected, setConnected] = useState(false);
   const [recentEvents, setRecentEvents] = useState<KivaEventData[]>([]);
-  const { user } = useAuth();
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [lastSeen, setLastSeen] = useState<Record<string, number>>({});
+  const { user, token } = useAuth();
 
   useEffect(() => {
-    const backendUrl = getBackendUrl();
-    const newSocket = io(backendUrl, {
+    // Le token de session authentifie le socket : le serveur rejoint lui-même la room privée
+    const newSocket = io(getBackendUrl(), {
       transports: ["websocket", "polling"],
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
+      reconnectionDelayMax: 8000,
+      auth: token ? { token } : {},
     });
+
+    const syncPresence = () =>
+      api
+        .getPresence()
+        .then((p) => {
+          setOnlineUsers(new Set(p.online));
+          setLastSeen(p.lastSeen || {});
+        })
+        .catch(() => undefined);
 
     newSocket.on("connect", () => {
       setConnected(true);
-      if (user?.username) {
-        newSocket.emit("join_user", user.username);
-      }
+      syncPresence();
     });
 
     newSocket.on("disconnect", () => {
@@ -53,22 +70,32 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
       setRecentEvents((prev) => [event, ...prev.slice(0, 19)]);
     });
 
+    newSocket.on("presence:update", (p: { username: string; online: boolean; lastSeen?: number }) => {
+      setOnlineUsers((prev) => {
+        const next = new Set(prev);
+        if (p.online) next.add(p.username);
+        else next.delete(p.username);
+        return next;
+      });
+      if (!p.online && p.lastSeen) {
+        setLastSeen((prev) => ({ ...prev, [p.username]: p.lastSeen! }));
+      }
+    });
+
     setSocket(newSocket);
 
     return () => {
       newSocket.disconnect();
     };
-  }, [user?.username]);
+  }, [token, user?.username]);
 
-  // Ensure user always joins their room upon auth state update
-  useEffect(() => {
-    if (socket && connected && user?.username) {
-      socket.emit("join_user", user.username);
-    }
-  }, [socket, connected, user?.username]);
+  const isOnline = useCallback(
+    (username?: string) => !!username && onlineUsers.has(username.toLowerCase()),
+    [onlineUsers]
+  );
 
   return (
-    <SocketContext.Provider value={{ socket, connected, recentEvents }}>
+    <SocketContext.Provider value={{ socket, connected, recentEvents, onlineUsers, lastSeen, isOnline }}>
       {children}
     </SocketContext.Provider>
   );

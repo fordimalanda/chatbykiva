@@ -27,28 +27,63 @@
   --border: 216 34% 17%;
   --input: 216 34% 17%;
   --ring: 243 75% 59%;
-  --radius: 0.75rem;
+  --radius: 0.875rem;
+
+  /* Hauteurs de la coque applicative (utilisées pour les vues plein écran) */
+  --header-h: 3.5rem;
+  --bottom-nav-h: 4.25rem;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-body {
-  background-color: #030712;
-  color: #f3f4f6;
-  min-height: 100vh;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  overflow-x: hidden;
-  position: relative;
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    color-scheme: dark;
+    scroll-padding-top: calc(var(--header-h) + 1rem);
+  }
+
+  body {
+    background-color: #030712;
+    color: #f3f4f6;
+    min-height: 100vh;
+    min-height: 100dvh;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+      "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+    font-feature-settings: "cv11", "ss01";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(129, 140, 248, 0.8);
+    outline-offset: 2px;
+  }
+
+  /* iOS : pas de zoom automatique au focus si la police fait ≥ 16px */
+  @media (max-width: 639px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
 }
 
 /* Background ambient light gradients */
 body::before {
   content: "";
   position: fixed;
-  top: -100px;
+  top: -120px;
   left: 50%;
   transform: translateX(-50%);
-  width: 1100px;
+  width: min(1100px, 140vw);
   height: 600px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, rgba(168, 85, 247, 0.06) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.13) 0%, rgba(168, 85, 247, 0.06) 40%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
@@ -58,34 +93,63 @@ body::after {
   position: fixed;
   bottom: 0;
   right: 0;
-  width: 500px;
+  width: min(500px, 100vw);
   height: 500px;
   background: radial-gradient(circle, rgba(236, 72, 153, 0.05) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
 }
 
-/* Glassmorphism helpers */
-.glass-panel {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(51, 65, 85, 0.6);
+@layer components {
+  /* Glassmorphism helpers */
+  .glass-panel {
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(51, 65, 85, 0.6);
+  }
+
+  .glass-panel-interactive {
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(51, 65, 85, 0.6);
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .glass-panel-interactive:hover {
+    background: rgba(30, 41, 59, 0.85);
+    border-color: rgba(99, 102, 241, 0.4);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px -10px rgba(99, 102, 241, 0.15);
+  }
+
+  /* Conteneur de page standard : marges latérales cohérentes sur tous les écrans */
+  .page-container {
+    @apply mx-auto w-full max-w-7xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8;
+  }
+
+  /* Hauteur disponible sous l'en-tête (vues plein écran comme la messagerie) */
+  .h-app {
+    height: calc(100dvh - var(--header-h) - var(--safe-top));
+  }
+
+  .pb-safe {
+    padding-bottom: var(--safe-bottom);
+  }
+
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-slate-800/70;
+  }
 }
 
-.glass-panel-interactive {
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(51, 65, 85, 0.6);
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.glass-panel-interactive:hover {
-  background: rgba(30, 41, 59, 0.85);
-  border-color: rgba(99, 102, 241, 0.4);
-  transform: translateY(-2px);
-  box-shadow: 0 12px 30px -10px rgba(99, 102, 241, 0.15);
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 /* Custom scrollbars */
@@ -94,7 +158,7 @@ body::after {
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #0b0f19;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
   background: #1f293d;
@@ -102,4 +166,19 @@ body::after {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #374151;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* La messagerie occupe tout l'écran : pas de réserve pour la barre d'onglets mobile */
+main:has(.chat-shell) {
+  padding-bottom: 0 !important;
 }

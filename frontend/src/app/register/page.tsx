@@ -18,6 +18,11 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Robustesse indicative : longueur + variété des caractères
+  const strength = [password.length >= 8, /[A-Z]/.test(password) && /[a-z]/.test(password), /[0-9]/.test(password), /[^A-Za-z0-9]/.test(password)].filter(Boolean).length;
+  const strengthLabel = ["Très faible", "Faible", "Moyen", "Bon", "Excellent"][strength];
+  const strengthColor = ["bg-rose-500", "bg-rose-500", "bg-amber-500", "bg-emerald-500", "bg-emerald-400"][strength];
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -29,6 +34,11 @@ export default function RegisterPage() {
 
     if (username.trim().length < 3) {
       setError("Le nom d'utilisateur doit contenir au moins 3 caractères.");
+      return;
+    }
+
+    if (password.length < 6) {
+      setError("Le mot de passe doit contenir au moins 6 caractères.");
       return;
     }
 
@@ -48,7 +58,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center px-4 py-12">
+    <div className="min-h-[85dvh] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex h-12 w-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 items-center justify-center mb-4">
@@ -60,7 +70,7 @@ export default function RegisterPage() {
           </p>
         </div>
 
-        <Card className="border-slate-800/90 shadow-2xl">
+        <Card className="border-slate-800/90 p-5 shadow-2xl sm:p-6">
           <CardHeader>
             <CardTitle>Inscription</CardTitle>
             <CardDescription>
@@ -86,6 +96,9 @@ export default function RegisterPage() {
                   placeholder="ex: bob"
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+                  maxLength={24}
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   autoComplete="username"
                   required
                 />
@@ -135,11 +148,22 @@ export default function RegisterPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-slate-400 hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                    aria-label={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {password && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <div className="flex flex-1 gap-1">
+                      {[0, 1, 2, 3].map((i) => (
+                        <span key={i} className={`h-1 flex-1 rounded-full ${i < Math.max(1, strength) ? strengthColor : "bg-slate-800"}`} />
+                      ))}
+                    </div>
+                    <span className="text-[11px] text-slate-400">{password.length < 6 ? "6 caractères min." : strengthLabel}</span>
+                  </div>
+                )}
               </div>
             </CardContent>
 

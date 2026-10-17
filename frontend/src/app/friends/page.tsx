@@ -11,6 +11,8 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { KivaEventTicker } from "@/components/KivaEventTicker";
+import { toast } from "@/lib/toast";
+import { cn } from "@/lib/utils";
 import {
   Users,
   UserCheck,
@@ -24,7 +26,7 @@ import {
 
 export default function FriendsPage() {
   const { user, refreshUser } = useAuth();
-  const { socket } = useSocket();
+  const { socket, isOnline, onlineUsers } = useSocket();
 
   const [users, setUsers] = useState<UserSummaryItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -84,7 +86,7 @@ export default function FriendsPage() {
 
   const handleToggleFollow = async (targetUsername: string) => {
     if (!user) {
-      alert("Veuillez vous connecter pour vous abonner.");
+      toast.error("Veuillez vous connecter pour vous abonner.");
       return;
     }
 
@@ -121,14 +123,14 @@ export default function FriendsPage() {
       );
       await refreshUser();
     } catch (err: any) {
-      alert(err.message || "Erreur lors de la modification du suivi");
+      toast.error(err.message || "Erreur lors de la modification du suivi");
       fetchUsers(); // Rollback to actual state
     } finally {
       setFollowLoading((prev) => ({ ...prev, [targetUsername]: false }));
     }
   };
 
-  const [filterTab, setFilterTab] = useState<"all" | "following" | "followers">("all");
+  const [filterTab, setFilterTab] = useState<"all" | "following" | "followers" | "online">("all");
 
   const filteredUsers = users.filter((u) => {
     const q = searchTerm.toLowerCase();
@@ -142,18 +144,27 @@ export default function FriendsPage() {
     if (filterTab === "following") {
       return u.isFollowing;
     }
-    if (filterTab === "followers") {
-      // Current user is following this member, or if they follow me
-      // In UserSummaryItem, we check followers
-      return u.followersCount > 0;
-    }
+    if (filterTab === "followers") return !!u.followsYou;
+    if (filterTab === "online") return isOnline(u.username);
     return true;
-  });
+  }).sort((a, b) => Number(isOnline(b.username)) - Number(isOnline(a.username)));
+
+  const filterTabs = [
+    { id: "all" as const, label: "Tous", count: users.length },
+    {
+      id: "online" as const,
+      label: "En ligne",
+      count: users.filter((u) => u.username !== user?.username && onlineUsers.has(u.username)).length,
+    },
+    { id: "following" as const, label: "Mes abonnements", count: users.filter((u) => u.isFollowing).length },
+    { id: "followers" as const, label: "Mes abonnés", count: users.filter((u) => u.followsYou).length },
+  ];
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
-      {/* Ticker */}
-      <KivaEventTicker />
+    <div className="page-container space-y-5">
+      <div className="hidden sm:block">
+        <KivaEventTicker />
+      </div>
 
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -181,7 +192,7 @@ export default function FriendsPage() {
             onChange={(e) => setSearchTerm(e.target.value)}
             className="pl-9 pr-8 bg-slate-900/80 border-slate-700/80"
           />
-          <Search className="h-4 w-4 text-slate-400 absolute left-3 top-3.5 pointer-events-none" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           {searchTerm && (
             <button
               onClick={() => setSearchTerm("")}
@@ -194,27 +205,23 @@ export default function FriendsPage() {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3 overflow-x-auto">
-        <button
-          onClick={() => setFilterTab("all")}
-          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
-            filterTab === "all"
-              ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-              : "bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800"
-          }`}
-        >
-          Tous les membres ({users.length})
-        </button>
-        <button
-          onClick={() => setFilterTab("following")}
-          className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
-            filterTab === "following"
-              ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
-              : "bg-slate-900/60 text-slate-400 hover:text-white hover:bg-slate-800"
-          }`}
-        >
-          Mes abonnements ({users.filter((u) => u.isFollowing).length})
-        </button>
+      <div className="scrollbar-none -mx-3 flex items-center gap-2 overflow-x-auto border-b border-slate-800/80 px-3 pb-3 sm:mx-0 sm:px-0">
+        {filterTabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setFilterTab(t.id)}
+            className={cn(
+              "flex items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-1.5 text-xs font-semibold transition-all",
+              filterTab === t.id
+                ? "bg-indigo-600 text-white shadow-md shadow-indigo-500/20"
+                : "bg-slate-900/60 text-slate-400 hover:bg-slate-800 hover:text-white"
+            )}
+          >
+            {t.id === "online" && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />}
+            {t.label}
+            <span className={cn("tabular-nums", filterTab === t.id ? "text-indigo-200" : "text-slate-500")}>{t.count}</span>
+          </button>
+        ))}
       </div>
 
       {/* Users Grid */}
@@ -231,7 +238,7 @@ export default function FriendsPage() {
           </p>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3">
           {filteredUsers.map((member) => {
             const isMe = user?.username === member.username;
             const isPending = followLoading[member.username];
@@ -239,7 +246,7 @@ export default function FriendsPage() {
             return (
               <Card
                 key={member.username}
-                className="border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between group shadow-xl"
+                className="group flex flex-col justify-between border-slate-800/80 p-4 shadow-xl transition-all hover:border-slate-700/80 sm:p-5"
               >
                 <div>
                   <div className="flex items-start justify-between gap-3 mb-4">
@@ -247,7 +254,7 @@ export default function FriendsPage() {
                       href={`/profile/${member.username}`}
                       className="flex items-center gap-3 group-hover:opacity-90 transition-opacity"
                     >
-                      <Avatar src={member.avatar} fallback={member.username} size="lg" />
+                      <Avatar src={member.avatar} fallback={member.username} size="lg" online={isOnline(member.username)} />
                       <div>
                         <h3 className="font-bold text-white text-base leading-tight group-hover:text-indigo-300 transition-colors">
                           {member.displayName}
@@ -321,7 +328,7 @@ export default function FriendsPage() {
                         {member.isFollowing ? (
                           <>
                             <UserCheck className="h-3.5 w-3.5 text-emerald-400" />
-                            Abonné (Unfollow)
+                            Abonné
                           </>
                         ) : member.followsYou ? (
                           <>
@@ -331,7 +338,7 @@ export default function FriendsPage() {
                         ) : (
                           <>
                             <UserPlus className="h-3.5 w-3.5" />
-                            Suivre (Follow)
+                            Suivre
                           </>
                         )}
                       </Button>

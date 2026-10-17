@@ -6,6 +6,33 @@ export function getBackendUrl(): string {
   return "http://localhost:4000";
 }
 
+/**
+ * fetch() qui signale une session expirée (401 sur une requête authentifiée)
+ * pour que l'AuthContext déconnecte proprement l'utilisateur.
+ */
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(input, init);
+  const headers = (init?.headers || {}) as Record<string, string>;
+  if (res.status === 401 && headers["Authorization"] && typeof window !== "undefined") {
+    window.dispatchEvent(new Event("kiva:unauthorized"));
+  }
+  return res;
+}
+
+export function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return localStorage.getItem("kiva_token");
+  } catch {
+    return null;
+  }
+}
+
+export function resolveMediaUrl(url?: string): string {
+  if (!url) return "";
+  return url.startsWith("/uploads/") ? `${getBackendUrl()}${url}` : url;
+}
+
 export interface UserSummaryItem {
   username: string;
   displayName: string;
@@ -35,6 +62,7 @@ export interface MessageAttachment {
 
 export interface ChatMessage {
   id: string;
+  deleted?: boolean;
   from: string;
   fromDisplayName?: string;
   fromAvatar?: string;
@@ -53,7 +81,7 @@ export interface NotificationItem {
   fromUser: string;
   fromDisplayName?: string;
   fromAvatar?: string;
-  type: 'mention' | 'message' | 'invite' | 'like' | 'follow' | 'join_request';
+  type: 'mention' | 'message' | 'invite' | 'like' | 'comment' | 'follow' | 'join_request';
   title: string;
   message: string;
   link?: string;
@@ -108,8 +136,33 @@ export interface PostItem {
   content: string;
   likes: string[];
   likesCount: number;
+  commentsCount?: number;
+  hashtags?: string[];
+  timestamp: number;
+  editedAt?: number;
+}
+
+export interface CommentItem {
+  id: string;
+  postId: string;
+  author: string;
+  displayName: string;
+  avatar: string;
+  content: string;
   timestamp: number;
 }
+
+export interface SuggestionItem extends UserSummaryItem {
+  mutualCount: number;
+  mutuals: string[];
+}
+
+export interface PresenceState {
+  online: string[];
+  lastSeen: Record<string, number>;
+}
+
+export type FeedScope = "all" | "following";
 
 export interface ConversationSummary {
   withUser: string;
@@ -124,22 +177,124 @@ class ApiService {
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
     };
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("kiva_token");
-      const user = localStorage.getItem("kiva_user");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (user) {
-        try {
-          const parsed = JSON.parse(user);
-          if (parsed?.username) headers["x-user"] = parsed.username;
-        } catch {}
-      }
-    }
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     return headers;
   }
 
+  private async json<T>(res: Response, fallback: string): Promise<T> {
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const message = Array.isArray(json.message) ? json.message[0] : json.message;
+      throw new Error(message || fallback);
+    }
+    return json as T;
+  }
+
+  async me(): Promise<UserProfile> {
+    const res = await apiFetch(`${getBackendUrl()}/auth/me`, { headers: this.getHeaders() });
+    return this.json(res, "Session invalide");
+  }
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; revokedSessions: number }> {
+    const res = await apiFetch(`${getBackendUrl()}/auth/password`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+    return this.json(res, "Erreur lors du changement de mot de passe");
+  }
+
+  async updateProfile(data: { displayName?: string; bio?: string; avatar?: string }): Promise<UserProfile> {
+    const res = await apiFetch(`${getBackendUrl()}/users/me`, {
+      method: "PATCH",
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+    return this.json(res, "Erreur lors de la mise à jour du profil");
+  }
+
+  async getPresence(): Promise<PresenceState> {
+    const res = await apiFetch(`${getBackendUrl()}/users/presence`, { headers: this.getHeaders() });
+    if (!res.ok) return { online: [], lastSeen: {} };
+    return res.json();
+  }
+
+  async getSuggestions(): Promise<SuggestionItem[]> {
+    const res = await apiFetch(`${getBackendUrl()}/users/suggestions`, { headers: this.getHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async getFeed(opts: { scope?: FeedScope; author?: string; tag?: string } = {}): Promise<PostItem[]> {
+    const params = new URLSearchParams();
+    if (opts.scope) params.set("scope", opts.scope);
+    if (opts.author) params.set("author", opts.author);
+    if (opts.tag) params.set("tag", opts.tag);
+    const res = await apiFetch(`${getBackendUrl()}/posts?${params.toString()}`, { headers: this.getHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async getTrending(): Promise<Array<{ tag: string; count: number }>> {
+    const res = await apiFetch(`${getBackendUrl()}/posts/trending`, { headers: this.getHeaders() });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async updatePost(id: string, content: string): Promise<PostItem> {
+    const res = await apiFetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    return this.json(res, "Erreur lors de la modification");
+  }
+
+  async getComments(postId: string): Promise<CommentItem[]> {
+    const res = await apiFetch(`${getBackendUrl()}/posts/${encodeURIComponent(postId)}/comments`, {
+      headers: this.getHeaders(),
+    });
+    if (!res.ok) return [];
+    return res.json();
+  }
+
+  async addComment(postId: string, content: string): Promise<CommentItem> {
+    const res = await apiFetch(`${getBackendUrl()}/posts/${encodeURIComponent(postId)}/comments`, {
+      method: "POST",
+      headers: this.getHeaders(),
+      body: JSON.stringify({ content }),
+    });
+    return this.json(res, "Erreur lors de l'envoi du commentaire");
+  }
+
+  async deleteComment(postId: string, commentId: string): Promise<void> {
+    const res = await apiFetch(
+      `${getBackendUrl()}/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}`,
+      { method: "DELETE", headers: this.getHeaders() }
+    );
+    await this.json(res, "Erreur lors de la suppression du commentaire");
+  }
+
+  async getMessagesPage(withUser: string, before?: number, limit = 50): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
+    const params = new URLSearchParams({ with: withUser, limit: String(limit) });
+    if (before) params.set("before", String(before));
+    const res = await apiFetch(`${getBackendUrl()}/messages/page?${params.toString()}`, {
+      headers: this.getHeaders(),
+    });
+    return this.json(res, "Erreur de récupération des messages");
+  }
+
+  async deleteMessage(id: string): Promise<ChatMessage> {
+    const res = await apiFetch(`${getBackendUrl()}/messages/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: this.getHeaders(),
+    });
+    return this.json(res, "Erreur lors de la suppression du message");
+  }
+
   async register(data: { username: string; password: string; displayName?: string; bio?: string }) {
-    const res = await fetch(`${getBackendUrl()}/auth/register`, {
+    const res = await apiFetch(`${getBackendUrl()}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -152,7 +307,7 @@ class ApiService {
   }
 
   async login(data: { username: string; password: string }) {
-    const res = await fetch(`${getBackendUrl()}/auth/login`, {
+    const res = await apiFetch(`${getBackendUrl()}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -166,7 +321,7 @@ class ApiService {
 
   async logoutSession(): Promise<void> {
     try {
-      await fetch(`${getBackendUrl()}/auth/logout`, {
+      await apiFetch(`${getBackendUrl()}/auth/logout`, {
         method: 'POST',
         headers: this.getHeaders(),
       });
@@ -174,7 +329,7 @@ class ApiService {
   }
 
   async getUsers(): Promise<UserSummaryItem[]> {
-    const res = await fetch(`${getBackendUrl()}/users`, {
+    const res = await apiFetch(`${getBackendUrl()}/users`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) throw new Error("Erreur lors de la récupération des utilisateurs");
@@ -182,7 +337,7 @@ class ApiService {
   }
 
   async getProfile(username: string): Promise<UserProfile> {
-    const res = await fetch(`${getBackendUrl()}/users/${encodeURIComponent(username)}/profile`, {
+    const res = await apiFetch(`${getBackendUrl()}/users/${encodeURIComponent(username)}/profile`, {
       headers: this.getHeaders(),
     });
     const json = await res.json();
@@ -191,7 +346,7 @@ class ApiService {
   }
 
   async toggleFollow(username: string): Promise<{ following: boolean; followersCount: number; followingCount: number }> {
-    const res = await fetch(`${getBackendUrl()}/users/${encodeURIComponent(username)}/follow`, {
+    const res = await apiFetch(`${getBackendUrl()}/users/${encodeURIComponent(username)}/follow`, {
       method: "POST",
       headers: this.getHeaders(),
     });
@@ -201,7 +356,7 @@ class ApiService {
   }
 
   async sendMessage(data: { to?: string; content?: string; attachments?: MessageAttachment[] }): Promise<ChatMessage> {
-    const res = await fetch(`${getBackendUrl()}/messages`, {
+    const res = await apiFetch(`${getBackendUrl()}/messages`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -215,7 +370,7 @@ class ApiService {
     const url = withUser
       ? `${getBackendUrl()}/messages?with=${encodeURIComponent(withUser)}`
       : `${getBackendUrl()}/messages`;
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       headers: this.getHeaders(),
     });
     if (!res.ok) throw new Error("Erreur de récupération des messages");
@@ -223,7 +378,7 @@ class ApiService {
   }
 
   async getConversations(): Promise<ConversationSummary[]> {
-    const res = await fetch(`${getBackendUrl()}/messages/conversations`, {
+    const res = await apiFetch(`${getBackendUrl()}/messages/conversations`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -231,7 +386,7 @@ class ApiService {
   }
 
   async getPosts(): Promise<PostItem[]> {
-    const res = await fetch(`${getBackendUrl()}/posts`, {
+    const res = await apiFetch(`${getBackendUrl()}/posts`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -239,7 +394,7 @@ class ApiService {
   }
 
   async createPost(content: string): Promise<PostItem> {
-    const res = await fetch(`${getBackendUrl()}/posts`, {
+    const res = await apiFetch(`${getBackendUrl()}/posts`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ content }),
@@ -250,7 +405,7 @@ class ApiService {
   }
 
   async toggleLikePost(id: string): Promise<PostItem> {
-    const res = await fetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}/like`, {
+    const res = await apiFetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}/like`, {
       method: "POST",
       headers: this.getHeaders(),
     });
@@ -260,7 +415,7 @@ class ApiService {
   }
 
   async deletePost(id: string): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${getBackendUrl()}/posts/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: this.getHeaders(),
     });
@@ -268,7 +423,7 @@ class ApiService {
   }
 
   async getChannels(): Promise<ChannelItem[]> {
-    const res = await fetch(`${getBackendUrl()}/channels`, {
+    const res = await apiFetch(`${getBackendUrl()}/channels`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -276,7 +431,7 @@ class ApiService {
   }
 
   async createChannel(data: { name: string; description?: string; isPrivate?: boolean }): Promise<ChannelItem> {
-    const res = await fetch(`${getBackendUrl()}/channels`, {
+    const res = await apiFetch(`${getBackendUrl()}/channels`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -287,7 +442,7 @@ class ApiService {
   }
 
   async updateChannel(id: string, data: { name?: string; description?: string; isPrivate?: boolean; members?: string[] }): Promise<ChannelItem> {
-    const res = await fetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -298,7 +453,7 @@ class ApiService {
   }
 
   async deleteChannel(id: string): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${getBackendUrl()}/channels/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: this.getHeaders(),
     });
@@ -312,7 +467,7 @@ class ApiService {
   // ==========================================
 
   async getCommunities(): Promise<CommunityItem[]> {
-    const res = await fetch(`${getBackendUrl()}/communities`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -320,7 +475,7 @@ class ApiService {
   }
 
   async createCommunity(data: { name: string; description?: string; isPrivate?: boolean }): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -331,7 +486,7 @@ class ApiService {
   }
 
   async updateCommunity(id: string, data: { name?: string; description?: string; isPrivate?: boolean }): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
       method: "PUT",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -342,7 +497,7 @@ class ApiService {
   }
 
   async deleteCommunity(id: string): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(id)}`, {
       method: "DELETE",
       headers: this.getHeaders(),
     });
@@ -350,7 +505,7 @@ class ApiService {
   }
 
   async inviteToCommunity(communityId: string, username: string): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/invite`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/invite`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ username }),
@@ -361,7 +516,7 @@ class ApiService {
   }
 
   async respondToCommunityInvite(communityId: string, accept: boolean): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/respond-invite`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/respond-invite`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ accept }),
@@ -372,7 +527,7 @@ class ApiService {
   }
 
   async joinCommunity(communityId: string): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/join`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/join`, {
       method: "POST",
       headers: this.getHeaders(),
     });
@@ -382,7 +537,7 @@ class ApiService {
   }
 
   async toggleCommunityAdmin(communityId: string, username: string): Promise<CommunityItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/admins`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/admins`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ username }),
@@ -393,7 +548,7 @@ class ApiService {
   }
 
   async getSalons(communityId: string): Promise<SalonItem[]> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -404,7 +559,7 @@ class ApiService {
     communityId: string,
     data: { name: string; description?: string; visibility?: SalonVisibility }
   ): Promise<SalonItem> {
-    const res = await fetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
+    const res = await apiFetch(`${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify(data),
@@ -419,7 +574,7 @@ class ApiService {
     salonId: string,
     data: { name?: string; description?: string; visibility?: SalonVisibility }
   ): Promise<SalonItem> {
-    const res = await fetch(
+    const res = await apiFetch(
       `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}`,
       {
         method: "PUT",
@@ -433,7 +588,7 @@ class ApiService {
   }
 
   async deleteSalon(communityId: string, salonId: string): Promise<boolean> {
-    const res = await fetch(
+    const res = await apiFetch(
       `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}`,
       {
         method: "DELETE",
@@ -444,7 +599,7 @@ class ApiService {
   }
 
   async addMemberToSalon(communityId: string, salonId: string, username: string): Promise<SalonItem> {
-    const res = await fetch(
+    const res = await apiFetch(
       `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/members`,
       {
         method: "POST",
@@ -458,7 +613,7 @@ class ApiService {
   }
 
   async requestJoinSalon(communityId: string, salonId: string): Promise<SalonItem> {
-    const res = await fetch(
+    const res = await apiFetch(
       `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/join-request`,
       {
         method: "POST",
@@ -476,7 +631,7 @@ class ApiService {
     username: string,
     approve: boolean
   ): Promise<SalonItem> {
-    const res = await fetch(
+    const res = await apiFetch(
       `${getBackendUrl()}/communities/${encodeURIComponent(communityId)}/salons/${encodeURIComponent(salonId)}/respond-join`,
       {
         method: "POST",
@@ -499,19 +654,10 @@ class ApiService {
     formData.append("file", file, filename);
 
     const headers: Record<string, string> = {};
-    if (typeof window !== "undefined") {
-      const token = localStorage.getItem("kiva_token");
-      const user = localStorage.getItem("kiva_user");
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-      if (user) {
-        try {
-          const parsed = JSON.parse(user);
-          if (parsed?.username) headers["x-user"] = parsed.username;
-        } catch {}
-      }
-    }
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
 
-    const res = await fetch(`${getBackendUrl()}/uploads`, {
+    const res = await apiFetch(`${getBackendUrl()}/uploads`, {
       method: "POST",
       headers,
       body: formData,
@@ -527,7 +673,7 @@ class ApiService {
   // ==========================================
 
   async getNotifications(): Promise<NotificationItem[]> {
-    const res = await fetch(`${getBackendUrl()}/notifications`, {
+    const res = await apiFetch(`${getBackendUrl()}/notifications`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return [];
@@ -535,7 +681,7 @@ class ApiService {
   }
 
   async getUnreadNotificationsCount(): Promise<number> {
-    const res = await fetch(`${getBackendUrl()}/notifications/unread-count`, {
+    const res = await apiFetch(`${getBackendUrl()}/notifications/unread-count`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return 0;
@@ -544,7 +690,7 @@ class ApiService {
   }
 
   async markNotificationAsRead(id: string): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/notifications/${encodeURIComponent(id)}/read`, {
+    const res = await apiFetch(`${getBackendUrl()}/notifications/${encodeURIComponent(id)}/read`, {
       method: "POST",
       headers: this.getHeaders(),
     });
@@ -552,7 +698,7 @@ class ApiService {
   }
 
   async markAllNotificationsAsRead(): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/notifications/read-all`, {
+    const res = await apiFetch(`${getBackendUrl()}/notifications/read-all`, {
       method: "POST",
       headers: this.getHeaders(),
     });
@@ -560,7 +706,7 @@ class ApiService {
   }
 
   async getUnreadMessagesCount(): Promise<number> {
-    const res = await fetch(`${getBackendUrl()}/messages/unread-count`, {
+    const res = await apiFetch(`${getBackendUrl()}/messages/unread-count`, {
       headers: this.getHeaders(),
     });
     if (!res.ok) return 0;
@@ -569,7 +715,7 @@ class ApiService {
   }
 
   async markMessagesAsRead(withUser: string): Promise<boolean> {
-    const res = await fetch(`${getBackendUrl()}/messages/read`, {
+    const res = await apiFetch(`${getBackendUrl()}/messages/read`, {
       method: "POST",
       headers: this.getHeaders(),
       body: JSON.stringify({ withUser }),

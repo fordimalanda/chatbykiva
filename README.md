@@ -47,6 +47,14 @@ Ce projet illustre 4 points forts majeurs de KivaDB :
 | **Messagerie Instantanée** | Chat public (Salon Général) et privé (Direct) | Enregistrement sous `msg:<timestamp>_<id>` et propagation temps réel. |
 | **Inspecteur KivaDB (Live Ticker)** | Bandeau en direct affichant les mutations de la base | Écoute en continu du flux `/ws` de KivaDB avec type et nom de clé. |
 | **Visualiseur JSON KivaDB** | Onglet dédié sur chaque profil | Affichage du document JSON brut tel que stocké dans KivaDB. |
+| **Sessions sécurisées** | Jeton aléatoire opaque, révocation au changement de mot de passe, anti brute-force | `session:<token>` avec TTL natif KivaDB, validé à chaque requête (plus d'en-tête `x-user`). |
+| **Messages privés réellement privés** | Un DM n'est diffusé qu'à ses deux participants ; salons privés réservés aux membres | Index par conversation `msg:d.<a>.<b>:<id>` / `msg:s.<salon>:<id>` lu par `range`. |
+| **Présence & « en train d'écrire »** | Pastilles en ligne, « vu il y a… », indicateur de frappe | Dernier passage persisté sous `presence:<username>`. |
+| **Commentaires, hashtags, tendances** | Commentaires en direct, filtre #hashtag, fil « Abonnements » | `comment:<postId>:<id>` (range par post), hashtags indexés dans `post:<id>`. |
+| **Notifications enrichies** | Like, commentaire, nouvel abonné, mention, message | `notif:<username>:<id>` + push Socket.IO. |
+| **Profil éditable** | Nom, bio, photo importée, changement de mot de passe | Mise à jour de `user:<username>`, propagée en direct. |
+| **Historique paginé & suppression** | « Messages précédents », suppression de ses propres messages | Pagination par `before=<timestamp>`, suppression douce. |
+| **Design responsive** | Barre d'onglets mobile, modales en feuille, safe-area iOS, toasts | — |
 
 ---
 

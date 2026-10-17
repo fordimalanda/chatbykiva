@@ -3,13 +3,15 @@ import { KivaService } from '../kiva/kiva.service';
 import { EventsGateway } from '../events/events.gateway';
 import { UserDocument } from '../auth/auth.service';
 
+export type NotificationType = 'mention' | 'message' | 'invite' | 'like' | 'comment' | 'follow' | 'join_request';
+
 export interface NotificationItem {
   id: string;
   toUser: string;
   fromUser: string;
   fromDisplayName?: string;
   fromAvatar?: string;
-  type: 'mention' | 'message' | 'invite' | 'like' | 'follow' | 'join_request';
+  type: NotificationType;
   title: string;
   message: string;
   link?: string;
@@ -32,7 +34,7 @@ export class NotificationsService {
   async createNotification(data: {
     toUser: string;
     fromUser: string;
-    type: 'mention' | 'message' | 'invite' | 'like' | 'follow' | 'join_request';
+    type: NotificationType;
     title: string;
     message: string;
     link?: string;

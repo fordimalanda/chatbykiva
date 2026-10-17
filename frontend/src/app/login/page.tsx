@@ -41,7 +41,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center px-4 py-8 sm:py-12">
+    <div className="min-h-[85dvh] flex items-center justify-center px-4 py-8 sm:py-12">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex h-14 w-14 rounded-2xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 items-center justify-center mb-4 shadow-xl shadow-indigo-500/25">
@@ -53,7 +53,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <Card className="border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl">
+        <Card className="border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl p-5 sm:p-6">
           <CardHeader>
             <CardTitle>Identifiants</CardTitle>
             <CardDescription>
@@ -101,7 +101,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-3 text-slate-400 hover:text-white"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>

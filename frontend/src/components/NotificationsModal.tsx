@@ -9,7 +9,7 @@ import { Dialog } from "./ui/Dialog";
 import { Avatar } from "./ui/Avatar";
 import { Button } from "./ui/Button";
 import { Badge } from "./ui/Badge";
-import { formatTime } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import {
   Bell,
   MessageSquare,
@@ -19,6 +19,8 @@ import {
   CheckCheck,
   ExternalLink,
   Lock,
+  Heart,
+  MessageCircle,
 } from "lucide-react";
 
 interface NotificationsModalProps {
@@ -103,15 +105,21 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
   const getNotifIcon = (type: NotificationItem["type"]) => {
     switch (type) {
       case "mention":
-        return <AtSign className="h-4 w-4 text-amber-400" />;
+        return <AtSign className="h-2.5 w-2.5 text-amber-400" />;
       case "message":
-        return <MessageSquare className="h-4 w-4 text-indigo-400" />;
+        return <MessageSquare className="h-2.5 w-2.5 text-indigo-400" />;
       case "invite":
-        return <Users className="h-4 w-4 text-emerald-400" />;
+        return <Users className="h-2.5 w-2.5 text-emerald-400" />;
       case "join_request":
-        return <Lock className="h-4 w-4 text-purple-400" />;
+        return <Lock className="h-2.5 w-2.5 text-purple-400" />;
+      case "like":
+        return <Heart className="h-2.5 w-2.5 fill-rose-400 text-rose-400" />;
+      case "comment":
+        return <MessageCircle className="h-2.5 w-2.5 text-sky-400" />;
+      case "follow":
+        return <UserPlus className="h-2.5 w-2.5 text-emerald-400" />;
       default:
-        return <Bell className="h-4 w-4 text-indigo-400" />;
+        return <Bell className="h-2.5 w-2.5 text-indigo-400" />;
     }
   };
 
@@ -122,7 +130,7 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
       open={open}
       onOpenChange={onOpenChange}
       title="Centre de Notifications"
-      description="Consultez vos mentions, invitations communautaires et nouveaux messages."
+      description="Mentions, likes, commentaires, nouveaux abonnés et messages."
     >
       <div className="space-y-3">
         {/* Actions header */}
@@ -146,7 +154,7 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
         </div>
 
         {/* Notifications list */}
-        <div className="max-h-[60vh] overflow-y-auto space-y-2 pr-1">
+        <div className="space-y-2">
           {notifications.length === 0 ? (
             <div className="py-8 text-center text-slate-400 space-y-2">
               <Bell className="h-8 w-8 mx-auto text-slate-600 opacity-60" />
@@ -157,10 +165,11 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
             </div>
           ) : (
             notifications.map((notif) => (
-              <div
+              <button
+                type="button"
                 key={notif.id}
                 onClick={() => handleClickNotif(notif)}
-                className={`p-3 rounded-2xl flex items-start gap-3 cursor-pointer transition-all border ${
+                className={`w-full text-left p-3 rounded-2xl flex items-start gap-3 cursor-pointer transition-all border ${
                   !notif.read
                     ? "bg-indigo-950/30 border-indigo-500/40 hover:bg-indigo-900/30 shadow-md shadow-indigo-500/5"
                     : "bg-slate-900/40 border-slate-800/80 hover:bg-slate-800/50"
@@ -185,7 +194,7 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
                       {notif.title}
                     </p>
                     <span className="text-[10px] text-slate-400 font-mono shrink-0">
-                      {formatTime(notif.createdAt)}
+                      {timeAgo(notif.createdAt)}
                     </span>
                   </div>
                   <p className="text-xs text-slate-300 leading-snug break-words">
@@ -197,7 +206,7 @@ export function NotificationsModal({ open, onOpenChange, onUnreadChange }: Notif
                 {!notif.read && (
                   <span className="h-2 w-2 rounded-full bg-indigo-500 shrink-0 mt-2 shadow-sm shadow-indigo-500" />
                 )}
-              </div>
+              </button>
             ))
           )}
         </div>

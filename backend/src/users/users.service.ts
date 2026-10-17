@@ -1,6 +1,18 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { KivaService } from '../kiva/kiva.service';
 import { UserDocument, SafeUser } from '../auth/auth.service';
+import { NotificationsService } from '../notifications/notifications.service';
+
+export class UpdateProfileDto {
+  displayName?: string;
+  bio?: string;
+  avatar?: string;
+}
+
+export interface SuggestionItem extends UserSummaryItem {
+  mutualCount: number;
+  mutuals: string[];
+}
 
 export interface UserSummaryItem {
   username: string;
@@ -18,7 +30,93 @@ export interface UserSummaryItem {
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly kivaService: KivaService) {}
+  constructor(
+    private readonly kivaService: KivaService,
+    private readonly notificationsService: NotificationsService,
+  ) {}
+
+  /**
+   * Modifier son propre profil (nom affiché, bio, avatar)
+   */
+  async updateProfile(username: string, dto: UpdateProfileDto): Promise<SafeUser> {
+    const doc = await this.kivaService.get<UserDocument>(`user:${username}`);
+    if (!doc) throw new NotFoundException('Compte introuvable.');
+
+    if (dto.displayName !== undefined) {
+      const name = dto.displayName.trim();
+      if (name.length < 1 || name.length > 50) {
+        throw new BadRequestException('Le nom affiché doit faire entre 1 et 50 caractères.');
+      }
+      doc.displayName = name;
+    }
+    if (dto.bio !== undefined) {
+      const bio = dto.bio.trim();
+      if (bio.length > 280) throw new BadRequestException('La bio est limitée à 280 caractères.');
+      doc.bio = bio;
+    }
+    if (dto.avatar !== undefined) {
+      const avatar = dto.avatar.trim();
+      const isValid = avatar === '' || avatar.startsWith('https://') || avatar.startsWith('/uploads/');
+      if (!isValid || avatar.length > 500) {
+        throw new BadRequestException("L'avatar doit être une URL https:// ou une image importée.");
+      }
+      doc.avatar = avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${username}`;
+    }
+
+    await this.kivaService.set(`user:${username}`, doc);
+    this.logger.log(`Profile updated: user:${username}`);
+    return {
+      username: doc.username,
+      displayName: doc.displayName,
+      bio: doc.bio,
+      avatar: doc.avatar,
+      followers: doc.followers || [],
+      following: doc.following || [],
+      followersCount: (doc.followers || []).length,
+      followingCount: (doc.following || []).length,
+      createdAt: doc.createdAt,
+    };
+  }
+
+  /**
+   * Suggestions "amis d'amis" : personnes suivies par mes abonnements,
+   * que je ne suis pas encore, classées par nombre de relations communes.
+   * À défaut, on complète avec les comptes les plus suivis.
+   */
+  async getSuggestions(currentUser: string, limit = 6): Promise<SuggestionItem[]> {
+    const me = currentUser.toLowerCase();
+    const all = await this.findAll(me);
+    const byName = new Map(all.map((u) => [u.username, u]));
+    const meDoc = await this.kivaService.get<UserDocument>(`user:${me}`);
+    const myFollowing = new Set(meDoc?.following || []);
+
+    const mutuals = new Map<string, Set<string>>();
+    for (const friend of myFollowing) {
+      const friendDoc = await this.kivaService.get<UserDocument>(`user:${friend}`);
+      for (const candidate of friendDoc?.following || []) {
+        if (candidate === me || myFollowing.has(candidate) || !byName.has(candidate)) continue;
+        if (!mutuals.has(candidate)) mutuals.set(candidate, new Set());
+        mutuals.get(candidate)!.add(friend);
+      }
+    }
+
+    const ranked: SuggestionItem[] = Array.from(mutuals, ([username, via]) => ({
+      ...byName.get(username)!,
+      mutualCount: via.size,
+      mutuals: Array.from(via).slice(0, 3),
+    })).sort((a, b) => b.mutualCount - a.mutualCount || b.followersCount - a.followersCount);
+
+    if (ranked.length < limit) {
+      const taken = new Set(ranked.map((r) => r.username));
+      const popular = all
+        .filter((u) => u.username !== me && !myFollowing.has(u.username) && !taken.has(u.username))
+        .sort((a, b) => b.followersCount - a.followersCount)
+        .map((u) => ({ ...u, mutualCount: 0, mutuals: [] }));
+      ranked.push(...popular);
+    }
+
+    return ranked.slice(0, limit);
+  }
 
   /**
    * Get all registered users from KivaDB via scan/range
@@ -130,6 +228,22 @@ export class UsersService {
     ]);
 
     this.logger.log(`Follow relation updated: ${current} -> ${target} (isFollowing: ${isNowFollowing})`);
+
+    if (isNowFollowing) {
+      const followsBack = (currentDoc.followers || []).includes(target);
+      this.notificationsService
+        .createNotification({
+          toUser: target,
+          fromUser: current,
+          type: 'follow',
+          title: followsBack ? `@${current} vous suit en retour` : `@${current} vous suit`,
+          message: followsBack
+            ? 'Vous êtes maintenant amis mutuels 🎉'
+            : 'Suivez-le en retour pour devenir amis mutuels.',
+          link: `/profile/${current}`,
+        })
+        .catch(() => undefined);
+    }
 
     return {
       following: isNowFollowing,

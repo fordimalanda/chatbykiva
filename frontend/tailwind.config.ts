@@ -40,6 +40,17 @@ const config: Config = {
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
       },
+      keyframes: {
+        'toast-in': { from: { opacity: '0', transform: 'translateY(-8px) scale(0.98)' }, to: { opacity: '1', transform: 'none' } },
+        'fade-up': { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'none' } },
+        'typing-dot': { '0%, 80%, 100%': { opacity: '0.25', transform: 'translateY(0)' }, '40%': { opacity: '1', transform: 'translateY(-2px)' } },
+      },
+      animation: {
+        'toast-in': 'toast-in 0.22s cubic-bezier(0.16,1,0.3,1)',
+        'fade-up': 'fade-up 0.25s cubic-bezier(0.16,1,0.3,1)',
+        'typing-dot': 'typing-dot 1.2s infinite ease-in-out',
+      },
+      screens: { xs: '420px' },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",

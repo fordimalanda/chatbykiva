@@ -24,7 +24,8 @@ import { Badge } from "@/components/ui/Badge";
 import { Dialog } from "@/components/ui/Dialog";
 import { KivaEventTicker } from "@/components/KivaEventTicker";
 import { VoiceMessagePlayer } from "@/components/VoiceMessagePlayer";
-import { formatTime } from "@/lib/utils";
+import { formatTime, dayLabel, lastSeenLabel, cn } from "@/lib/utils";
+import { toast } from "@/lib/toast";
 import {
   Send,
   MessageSquare,
@@ -54,11 +55,12 @@ import {
   FileText,
   Image as ImageIcon,
   Film,
+  ChevronUp,
 } from "lucide-react";
 
 function ChatInner() {
   const { user } = useAuth();
-  const { socket, connected } = useSocket();
+  const { socket, connected, isOnline, lastSeen } = useSocket();
   const searchParams = useSearchParams();
 
   const initialTarget = searchParams.get("with") || "general";
@@ -68,6 +70,13 @@ function ChatInner() {
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [messagesLoading, setMessagesLoading] = useState(true);
+  // "en train d'écrire…" : username -> timestamp d'expiration
+  const [typingUsers, setTypingUsers] = useState<Record<string, number>>({});
+  const typingSentRef = useRef<{ to: string; at: number } | null>(null);
+  const scrollBoxRef = useRef<HTMLDivElement>(null);
   const [communities, setCommunities] = useState<CommunityItem[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string>("comm-general");
   const [salonsMap, setSalonsMap] = useState<Record<string, SalonItem[]>>({});
@@ -184,13 +193,21 @@ function ChatInner() {
   // Load messages for current active target & mark as read
   useEffect(() => {
     if (!user) return;
+    setMessagesLoading(true);
+    setTypingUsers({});
     api
-      .getMessages(activePartner)
-      .then((data) => {
-        setMessages(data);
-        setTimeout(scrollToBottom, 100);
+      .getMessagesPage(activePartner)
+      .then((page) => {
+        setMessages(page.messages);
+        setHasMoreHistory(page.hasMore);
+        setTimeout(scrollToBottom, 60);
       })
-      .catch(console.error);
+      .catch((err) => {
+        setMessages([]);
+        setHasMoreHistory(false);
+        toast.error(err.message);
+      })
+      .finally(() => setMessagesLoading(false));
 
     // If it's a direct message partner, explicitly mark messages as read
     const isChannelTarget =
@@ -223,6 +240,12 @@ function ChatInner() {
           (msgFrom === partner && msgTo === current));
 
       if (isCurrentChannel || isExactChannel || isDirectWithPartner) {
+        setTypingUsers((prev) => {
+          if (!prev[msgFrom]) return prev;
+          const next = { ...prev };
+          delete next[msgFrom];
+          return next;
+        });
         setMessages((prev) => {
           if (prev.some((m) => m.id === newMsg.id)) return prev;
           return [...prev, newMsg];
@@ -265,6 +288,25 @@ function ChatInner() {
       }
     };
 
+    const handleMessageDeleted = (deleted: ChatMessage) => {
+      setMessages((prev) => prev.map((m) => (m.id === deleted.id ? { ...m, ...deleted } : m)));
+    };
+
+    const handleTyping = ({ from, to, isTyping }: { from: string; to: string; isTyping: boolean }) => {
+      const current = (user.username || "").toLowerCase();
+      const partner = (activePartner || "").toLowerCase();
+      const relevant = to === partner || (to === current && from === partner);
+      if (!relevant || from === current) return;
+      setTypingUsers((prev) => {
+        const next = { ...prev };
+        if (isTyping) next[from] = Date.now() + 4000;
+        else delete next[from];
+        return next;
+      });
+    };
+
+    socket.on("message:deleted", handleMessageDeleted);
+    socket.on("typing", handleTyping);
     socket.on("message:new", handleNewMessage);
     socket.on("message:direct", handleNewMessage);
     socket.on("message:read", handleMessageRead);
@@ -276,6 +318,8 @@ function ChatInner() {
     socket.on("salon:deleted", handleSalonUpdate);
 
     return () => {
+      socket.off("message:deleted", handleMessageDeleted);
+      socket.off("typing", handleTyping);
       socket.off("message:new", handleNewMessage);
       socket.off("message:direct", handleNewMessage);
       socket.off("message:read", handleMessageRead);
@@ -338,12 +382,12 @@ function ChatInner() {
       if (!getUserMedia) {
         const isHttp = window.location.protocol === "http:";
         if (isHttp) {
-          alert(
+          toast.error(
             "L'enregistrement vocal nécessite une connexion sécurisée (HTTPS). " +
             "Veuillez accéder au site via HTTPS ou depuis localhost."
           );
         } else {
-          alert(
+          toast.error(
             "Votre navigateur ne supporte pas l'enregistrement audio. " +
             "Essayez Chrome ou Firefox sur Android, ou Safari sur iOS 14.3+."
           );
@@ -379,7 +423,7 @@ function ChatInner() {
         setRecordingSeconds((prev) => prev + 1);
       }, 1000);
     } catch (err: any) {
-      alert("Accès au microphone requis pour enregistrer un message vocal : " + err.message);
+      toast.error("Accès au microphone requis pour enregistrer un message vocal : " + err.message);
     }
   };
 
@@ -427,7 +471,7 @@ function ChatInner() {
           setTimeout(scrollToBottom, 50);
         }
       } catch (err: any) {
-        alert("Erreur lors de l'envoi du message vocal : " + err.message);
+        toast.error("Erreur lors de l'envoi du message vocal : " + err.message);
       } finally {
         setSending(false);
       }
@@ -449,7 +493,7 @@ function ChatInner() {
         setPendingAttachments((prev) => [...prev, uploaded]);
       }
     } catch (err: any) {
-      alert("Erreur d'upload : " + err.message);
+      toast.error("Erreur d'upload : " + err.message);
     } finally {
       setUploadingAttachment(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -471,6 +515,7 @@ function ChatInner() {
     setInputContent("");
     setPendingAttachments([]);
     setMentionQuery(null);
+    emitTyping(false);
     setSending(true);
 
     try {
@@ -490,7 +535,7 @@ function ChatInner() {
 
       api.getConversations().then(setConversations).catch(console.error);
     } catch (err: any) {
-      alert(err.message || "Erreur d'envoi");
+      toast.error(err.message || "Erreur d'envoi");
     } finally {
       setSending(false);
     }
@@ -500,6 +545,7 @@ function ChatInner() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setInputContent(val);
+    emitTyping(val.trim().length > 0);
 
     if (!isSalon) {
       setMentionQuery(null);
@@ -540,6 +586,66 @@ function ChatInner() {
         )
       : [];
 
+  // Expire les indicateurs de frappe périmés
+  useEffect(() => {
+    if (Object.keys(typingUsers).length === 0) return;
+    const t = setInterval(() => {
+      setTypingUsers((prev) => {
+        const now = Date.now();
+        const next = Object.fromEntries(Object.entries(prev).filter(([, until]) => until > now));
+        return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [typingUsers]);
+
+  const emitTyping = (isTyping: boolean) => {
+    if (!socket) return;
+    const last = typingSentRef.current;
+    const now = Date.now();
+    if (isTyping && last && last.to === activePartner && now - last.at < 2500) return;
+    typingSentRef.current = isTyping ? { to: activePartner, at: now } : null;
+    socket.emit("typing", { to: activePartner, isTyping });
+  };
+
+  const loadOlderMessages = async () => {
+    if (loadingHistory || messages.length === 0) return;
+    setLoadingHistory(true);
+    const box = scrollBoxRef.current;
+    const prevHeight = box?.scrollHeight || 0;
+    try {
+      const page = await api.getMessagesPage(activePartner, messages[0].timestamp);
+      setMessages((prev) => [...page.messages.filter((m) => !prev.some((p) => p.id === m.id)), ...prev]);
+      setHasMoreHistory(page.hasMore);
+      // Conserver la position de lecture après l'ajout en haut
+      requestAnimationFrame(() => {
+        if (box) box.scrollTop = box.scrollHeight - prevHeight;
+      });
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleDeleteMessage = async (m: ChatMessage) => {
+    if (!confirm("Supprimer ce message pour tout le monde ?")) return;
+    try {
+      const deleted = await api.deleteMessage(m.id);
+      setMessages((prev) => prev.map((x) => (x.id === deleted.id ? { ...x, ...deleted } : x)));
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+  };
+
+  const typingNames = Object.keys(typingUsers);
+  const typingLabel =
+    typingNames.length === 0
+      ? null
+      : typingNames.length === 1
+      ? `${users.find((u) => u.username === typingNames[0])?.displayName || typingNames[0]} est en train d'écrire`
+      : `${typingNames.length} personnes écrivent`;
+
   const handleSelectPartner = (partner: string) => {
     setActivePartner(partner);
     setMobileView("chat");
@@ -578,7 +684,7 @@ function ChatInner() {
       setNewCommDesc("");
       setNewCommPrivate(false);
     } catch (err: any) {
-      alert(err.message || "Erreur de création de la communauté");
+      toast.error(err.message || "Erreur de création de la communauté");
     } finally {
       setCreatingComm(false);
     }
@@ -588,11 +694,11 @@ function ChatInner() {
     if (!selectedComm || !inviteUsernameInput.trim()) return;
     try {
       await api.inviteToCommunity(selectedComm.id, inviteUsernameInput.trim());
-      alert(`Invitation envoyée à @${inviteUsernameInput.trim()} !`);
+      toast.success(`Invitation envoyée à @${inviteUsernameInput.trim()} !`);
       setInviteUsernameInput("");
       await loadCommunitiesAndSalons();
     } catch (err: any) {
-      alert(err.message || "Erreur lors de l'invitation");
+      toast.error(err.message || "Erreur lors de l'invitation");
     }
   };
 
@@ -604,7 +710,7 @@ function ChatInner() {
         setSelectedCommunityId(commId);
       }
     } catch (err: any) {
-      alert(err.message || "Erreur lors de la réponse");
+      toast.error(err.message || "Erreur lors de la réponse");
     }
   };
 
@@ -615,7 +721,7 @@ function ChatInner() {
       setSelectedComm(updated);
       await loadCommunitiesAndSalons();
     } catch (err: any) {
-      alert(err.message || "Erreur de modification des administrateurs");
+      toast.error(err.message || "Erreur de modification des administrateurs");
     }
   };
 
@@ -628,7 +734,7 @@ function ChatInner() {
       setSelectedCommunityId("comm-general");
       setActivePartner("general");
     } catch (err: any) {
-      alert(err.message || "Impossible de supprimer la communauté");
+      toast.error(err.message || "Impossible de supprimer la communauté");
     }
   };
 
@@ -654,7 +760,7 @@ function ChatInner() {
       setNewSalonDesc("");
       setNewSalonVisibility("public");
     } catch (err: any) {
-      alert(err.message || "Erreur lors de la création du salon");
+      toast.error(err.message || "Erreur lors de la création du salon");
     } finally {
       setCreatingSalon(false);
     }
@@ -668,9 +774,9 @@ function ChatInner() {
       const list = await api.getSalons(selectedSalon.communityId);
       setSalonsMap((prev) => ({ ...prev, [selectedSalon.communityId]: list }));
       setAddMemberInput("");
-      alert(`@${addMemberInput.trim()} a été ajouté avec succès au salon !`);
+      toast.success(`@${addMemberInput.trim()} a été ajouté avec succès au salon !`);
     } catch (err: any) {
-      alert(err.message || "Impossible d'ajouter le membre");
+      toast.error(err.message || "Impossible d'ajouter le membre");
     }
   };
 
@@ -678,11 +784,11 @@ function ChatInner() {
     try {
       await api.requestJoinSalon(salon.communityId, salon.id);
       setRequestJoinSalonPrompt(null);
-      alert("Votre demande d'adhésion a été transmise aux administrateurs du salon !");
+      toast.success("Votre demande d'adhésion a été transmise aux administrateurs du salon !");
       const list = await api.getSalons(salon.communityId);
       setSalonsMap((prev) => ({ ...prev, [salon.communityId]: list }));
     } catch (err: any) {
-      alert(err.message || "Erreur de demande d'accès");
+      toast.error(err.message || "Erreur de demande d'accès");
     }
   };
 
@@ -699,7 +805,7 @@ function ChatInner() {
       const list = await api.getSalons(selectedSalon.communityId);
       setSalonsMap((prev) => ({ ...prev, [selectedSalon.communityId]: list }));
     } catch (err: any) {
-      alert(err.message || "Erreur lors du traitement de la demande");
+      toast.error(err.message || "Erreur lors du traitement de la demande");
     }
   };
 
@@ -716,20 +822,20 @@ function ChatInner() {
       }
       setSalonSettingsOpen(false);
     } catch (err: any) {
-      alert(err.message || "Impossible de supprimer le salon");
+      toast.error(err.message || "Impossible de supprimer le salon");
     }
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-2 sm:py-5 space-y-3">
+    <div className="chat-shell mx-auto flex h-app w-full max-w-7xl flex-col gap-3 sm:px-6 sm:py-4 lg:px-8">
       {/* Ticker */}
-      <div className={mobileView === "chat" ? "hidden sm:block" : "block"}>
+      <div className="hidden lg:block">
         <KivaEventTicker />
       </div>
 
       {/* Pending Community Invitations Banner */}
       {myPendingInvites.length > 0 && (
-        <div className="space-y-2">
+        <div className="space-y-2 px-2 pt-2 sm:px-0 sm:pt-0">
           {myPendingInvites.map((invComm) => (
             <div
               key={invComm.id}
@@ -769,10 +875,10 @@ function ChatInner() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 sm:gap-5 h-[calc(100dvh-5.5rem)] md:h-[calc(100vh-10rem)] min-h-[500px]">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 sm:gap-5 lg:grid-cols-12">
         {/* Left Sidebar */}
         <Card
-          className={`lg:col-span-4 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
+          className={`lg:col-span-4 p-0 flex min-h-0 flex-col overflow-hidden rounded-none border-x-0 border-y-0 sm:rounded-2xl sm:border border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl ${
             mobileView === "chat" ? "hidden lg:flex" : "flex"
           }`}
         >
@@ -782,7 +888,7 @@ function ChatInner() {
               <div className="flex items-center gap-2">
                 <Link
                   href="/feed"
-                  className="sm:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  className="md:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
                   title="Retour au fil d'actualité"
                 >
                   <Home className="h-4 w-4" />
@@ -986,6 +1092,12 @@ function ChatInner() {
                       u.displayName.toLowerCase().includes(searchFilter.toLowerCase())
                     );
                   })
+                  .sort((a, b) => {
+                    const ca = conversations.find((c) => c.withUser === a.username)?.lastTimestamp || 0;
+                    const cb = conversations.find((c) => c.withUser === b.username)?.lastTimestamp || 0;
+                    if (ca !== cb) return cb - ca;
+                    return Number(isOnline(b.username)) - Number(isOnline(a.username));
+                  })
                   .map((item) => {
                     const isActive = activePartner === item.username;
                     const convo = conversations.find((c) => c.withUser === item.username);
@@ -1002,10 +1114,7 @@ function ChatInner() {
                         }`}
                       >
                         <div className="relative shrink-0">
-                          <Avatar src={item.avatar} fallback={item.username} size="sm" />
-                          {unreadCount > 0 && (
-                            <span className="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-slate-900" />
-                          )}
+                          <Avatar src={item.avatar} fallback={item.username} size="md" online={isOnline(item.username)} />
                         </div>
 
                         <div className="flex-1 min-w-0">
@@ -1027,7 +1136,13 @@ function ChatInner() {
                             </div>
                           </div>
                           <p className={`text-[11px] truncate ${unreadCount > 0 ? "text-indigo-300 font-medium" : "text-slate-400"}`}>
-                            {convo ? convo.lastMessage : `@${item.username}`}
+                            {typingUsers[item.username] && activePartner === item.username
+                              ? "écrit…"
+                              : convo
+                              ? convo.lastMessage
+                              : isOnline(item.username)
+                              ? "En ligne"
+                              : `@${item.username}`}
                           </p>
                         </div>
                       </button>
@@ -1040,7 +1155,7 @@ function ChatInner() {
 
         {/* Right Area: Active Chat Window */}
         <Card
-          className={`lg:col-span-8 p-0 flex flex-col overflow-hidden border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl relative ${
+          className={`lg:col-span-8 p-0 flex min-h-0 flex-col overflow-hidden rounded-none border-x-0 border-y-0 sm:rounded-2xl sm:border border-slate-800/90 shadow-2xl bg-slate-900/80 backdrop-blur-xl relative ${
             mobileView === "contacts" ? "hidden lg:flex" : "flex"
           }`}
         >
@@ -1080,7 +1195,7 @@ function ChatInner() {
                       <h3 className="font-bold text-white text-sm sm:text-base truncate">
                         {activeSalon?.name}
                       </h3>
-                      <Badge variant="outline" className="text-[10px] px-1.5 py-0 border-indigo-500/40 text-indigo-300">
+                      <Badge variant="outline" className="hidden sm:inline-flex text-[10px] px-1.5 py-0 border-indigo-500/40 text-indigo-300">
                         {currentComm?.name}
                       </Badge>
                       {activeSalon?.visibility === "visible_private" && (
@@ -1094,8 +1209,8 @@ function ChatInner() {
                         </Badge>
                       )}
                     </div>
-                    <p className="text-[11px] sm:text-xs text-slate-400 truncate">
-                      {activeSalon?.description || "Salon communautaire KivaDB"}
+                    <p className={cn("text-[11px] sm:text-xs truncate", typingLabel ? "text-indigo-300" : "text-slate-400")}>
+                      {typingLabel ? `${typingLabel}…` : activeSalon?.description || "Salon communautaire KivaDB"}
                     </p>
                   </div>
                 </>
@@ -1103,9 +1218,10 @@ function ChatInner() {
                 <>
                   <Link href={`/profile/${activePartner}`} className="shrink-0">
                     <Avatar
-                      src={`https://api.dicebear.com/7.x/bottts/svg?seed=${activePartner}`}
+                      src={currentDirectUser?.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${activePartner}`}
                       fallback={activePartner}
                       size="md"
+                      online={isOnline(activePartner)}
                     />
                   </Link>
                   <div className="truncate">
@@ -1116,14 +1232,17 @@ function ChatInner() {
                       >
                         {currentDirectUser?.displayName || activePartner}
                       </Link>
-                      <span className="text-xs text-indigo-400 font-mono">@{activePartner}</span>
-                      <Link href={`/profile/${activePartner}`}>
-                        <ExternalLink className="h-3 w-3 sm:h-3.5 sm:w-3.5 text-indigo-400 hover:text-indigo-300 shrink-0" />
-                      </Link>
+                      <span className="hidden xs:inline text-xs text-indigo-400 font-mono">@{activePartner}</span>
                     </div>
-                    <p className="text-[10px] sm:text-xs text-emerald-400 flex items-center gap-1 truncate">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                      Conversation directe 1-à-1
+                    <p className={cn("text-[11px] sm:text-xs flex items-center gap-1 truncate", typingLabel ? "text-indigo-300" : isOnline(activePartner) ? "text-emerald-400" : "text-slate-400")}>
+                      {typingLabel ? (
+                        <>{typingLabel}…</>
+                      ) : (
+                        <>
+                          <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", isOnline(activePartner) ? "bg-emerald-400" : "bg-slate-500")} />
+                          {lastSeenLabel(isOnline(activePartner), lastSeen[activePartner])}
+                        </>
+                      )}
                     </p>
                   </div>
                 </>
@@ -1145,15 +1264,35 @@ function ChatInner() {
                   <span className="hidden sm:inline">Gérer le salon</span>
                 </Button>
               )}
-              <Badge variant="outline" className="font-mono text-[10px] sm:text-xs shrink-0">
+              <Badge variant="outline" className="hidden sm:inline-flex font-mono text-[10px] sm:text-xs shrink-0">
                 {messages.length} msg
               </Badge>
             </div>
           </div>
 
           {/* Messages Feed */}
-          <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/50">
-            {messages.length === 0 ? (
+          <div ref={scrollBoxRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 sm:p-4 space-y-3 sm:space-y-4 bg-slate-950/50">
+            {hasMoreHistory && (
+              <div className="flex justify-center">
+                <button
+                  onClick={loadOlderMessages}
+                  disabled={loadingHistory}
+                  className="flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1.5 text-xs text-slate-300 hover:text-white disabled:opacity-60"
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                  {loadingHistory ? "Chargement…" : "Messages précédents"}
+                </button>
+              </div>
+            )}
+            {messagesLoading ? (
+              <div className="space-y-4">
+                {[0, 1, 2, 3].map((i) => (
+                  <div key={i} className={cn("flex", i % 2 ? "justify-end" : "justify-start")}>
+                    <div className={cn("skeleton h-12 rounded-2xl", i % 2 ? "w-1/2" : "w-2/3")} />
+                  </div>
+                ))}
+              </div>
+            ) : messages.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-2 p-4 text-center">
                 <MessageSquare className="h-9 w-9 sm:h-11 sm:w-11 text-slate-600 mb-1" />
                 <p className="font-bold text-white text-sm sm:text-base">Aucun message pour l&apos;instant</p>
@@ -1164,18 +1303,37 @@ function ChatInner() {
                 </p>
               </div>
             ) : (
-              messages.map((m) => {
+              messages.map((m, index) => {
                 const isSentByMe = m.from === user?.username;
                 const isMentioned = user && Array.isArray(m.mentions) && m.mentions.includes(user.username);
                 const displayName = m.fromDisplayName || m.from;
+                const prev = messages[index - 1];
+                const showDay = !prev || new Date(prev.timestamp).toDateString() !== new Date(m.timestamp).toDateString();
 
                 return (
+                  <div key={m.id}>
+                  {showDay && (
+                    <div className="my-2 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      <span className="h-px flex-1 bg-slate-800" />
+                      {dayLabel(m.timestamp)}
+                      <span className="h-px flex-1 bg-slate-800" />
+                    </div>
+                  )}
                   <div
-                    key={m.id}
-                    className={`flex items-end gap-2.5 ${
+                    className={`group flex items-end gap-2 sm:gap-2.5 ${
                       isSentByMe ? "justify-end" : "justify-start"
                     }`}
                   >
+                    {isSentByMe && !m.deleted && (
+                      <button
+                        onClick={() => handleDeleteMessage(m)}
+                        className="mb-2 rounded-md p-1 text-slate-500 opacity-100 transition-opacity hover:text-rose-400 sm:opacity-0 sm:group-hover:opacity-100"
+                        aria-label="Supprimer le message"
+                        title="Supprimer pour tout le monde"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                     {!isSentByMe && (
                       <Link
                         href={`/profile/${m.from}`}
@@ -1191,7 +1349,7 @@ function ChatInner() {
                     )}
 
                     <div
-                      className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm shadow-md transition-all ${
+                      className={`max-w-[82%] sm:max-w-[70%] min-w-0 rounded-2xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm shadow-md transition-all ${
                         isSentByMe
                           ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-br-none"
                           : isMentioned
@@ -1228,6 +1386,10 @@ function ChatInner() {
                         )}
                       </div>
 
+                      {m.deleted && (
+                        <p className="italic text-xs sm:text-sm opacity-70">🚫 Ce message a été supprimé</p>
+                      )}
+
                       {/* Text Content */}
                       {m.content && (
                         <p className="whitespace-pre-wrap leading-relaxed break-words text-xs sm:text-sm">
@@ -1243,18 +1405,18 @@ function ChatInner() {
 
                             if (att.type === "image") {
                               return (
-                                <div key={idx} className="relative group max-w-xs sm:max-w-sm rounded-xl overflow-hidden border border-white/10 shadow-lg">
+                                <div key={idx} className="relative group max-w-full sm:max-w-sm rounded-xl overflow-hidden border border-white/10 shadow-lg">
                                   <img
                                     src={fullUrl}
                                     alt={att.name}
-                                    className="max-h-64 sm:max-h-72 w-auto object-cover rounded-xl"
+                                    className="max-h-64 sm:max-h-72 w-auto max-w-full object-cover rounded-xl"
                                   />
                                   <a
                                     href={fullUrl}
                                     download={att.name}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
+                                    className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-black/60 hover:bg-black/80 text-white backdrop-blur-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-1 text-[10px]"
                                   >
                                     <Download className="h-3 w-3" />
                                     Télécharger
@@ -1265,7 +1427,7 @@ function ChatInner() {
 
                             if (att.type === "video") {
                               return (
-                                <div key={idx} className="max-w-xs sm:max-w-sm rounded-xl overflow-hidden border border-white/10 space-y-1 shadow-lg">
+                                <div key={idx} className="max-w-full sm:max-w-sm rounded-xl overflow-hidden border border-white/10 space-y-1 shadow-lg">
                                   <video
                                     src={fullUrl}
                                     controls
@@ -1343,8 +1505,19 @@ function ChatInner() {
                       </div>
                     </div>
                   </div>
+                  </div>
                 );
               })
+            )}
+            {typingLabel && (
+              <div className="flex items-center gap-2 pl-1 text-xs text-slate-400 animate-fade-up">
+                <span className="flex items-center gap-1 rounded-2xl rounded-bl-none bg-slate-800/90 px-3 py-2.5">
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} className="h-1.5 w-1.5 rounded-full bg-slate-300 animate-typing-dot" style={{ animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </span>
+                {typingLabel}
+              </div>
             )}
             <div ref={messagesEndRef} />
           </div>
@@ -1413,7 +1586,7 @@ function ChatInner() {
 
           {/* Input Footer: Voice Recording Bar OR Normal Input */}
           {isRecording ? (
-            <div className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/90 flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="p-2.5 sm:p-3 pb-[calc(0.625rem+var(--safe-bottom))] sm:pb-3 border-t border-slate-800/80 bg-slate-900/90 flex items-center justify-between gap-3 animate-fade-up">
               <div className="flex items-center gap-2.5">
                 <span className="h-3 w-3 rounded-full bg-rose-500 animate-ping" />
                 <span className="text-xs font-bold text-rose-400 font-mono">
@@ -1441,14 +1614,15 @@ function ChatInner() {
                   className="text-xs bg-emerald-600 hover:bg-emerald-500 text-white gap-1 h-8 px-3"
                 >
                   <Send className="h-3.5 w-3.5" />
-                  Envoyer le vocal
+                  <span className="hidden xs:inline">Envoyer le vocal</span>
+                  <span className="xs:hidden">Envoyer</span>
                 </Button>
               </div>
             </div>
           ) : (
             <form
               onSubmit={handleSend}
-              className="p-2.5 sm:p-3 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-1.5 sm:gap-2"
+              className="p-2 sm:p-3 pb-[calc(0.5rem+var(--safe-bottom))] sm:pb-3 border-t border-slate-800/80 bg-slate-900/80 flex items-center gap-1 sm:gap-2"
             >
               {/* Attachment Picker Button */}
               <button
@@ -1473,10 +1647,12 @@ function ChatInner() {
                   }
                   value={inputContent}
                   onChange={handleInputChange}
-                  className={`w-full bg-slate-950/90 text-xs sm:text-sm h-10 border-slate-700/80 ${
-                    isSalon ? "pr-8" : "pr-3"
+                  onBlur={() => emitTyping(false)}
+                  maxLength={4000}
+                  enterKeyHint="send"
+                  className={`w-full rounded-full bg-slate-950/90 text-sm h-11 sm:h-10 border-slate-700/80 ${
+                    isSalon ? "pr-9" : "pr-3"
                   }`}
-                  autoFocus
                 />
                 {/* @ Mention button: VISIBLE ONLY IN SALONS! */}
                 {isSalon && (
@@ -1488,7 +1664,7 @@ function ChatInner() {
                       setMentionStartIndex(inputContent.length);
                       inputRef.current?.focus();
                     }}
-                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-indigo-300"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-indigo-300"
                     title="Mentionner avec @"
                   >
                     <AtSign className="h-4 w-4" />
@@ -1511,7 +1687,7 @@ function ChatInner() {
                 type="submit"
                 size="default"
                 disabled={!inputContent.trim() && pendingAttachments.length === 0}
-                className="gap-1.5 sm:gap-2 shrink-0 h-10 px-3.5 sm:px-4 text-xs sm:text-sm shadow-md shadow-indigo-500/20"
+                className="gap-1.5 sm:gap-2 shrink-0 h-11 w-11 sm:h-10 sm:w-auto rounded-full sm:rounded-lg px-0 sm:px-4 text-xs sm:text-sm shadow-md shadow-indigo-500/20"
                 isLoading={sending}
               >
                 <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />

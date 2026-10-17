@@ -6,11 +6,11 @@ import {
   Delete,
   Param,
   Body,
-  Headers,
   BadRequestException,
+  UnauthorizedException,
 } from '@nestjs/common';
 import { ChannelsService } from './channels.service';
-import { AuthService } from '../auth/auth.service';
+import { CurrentUser } from '../auth/session.guard';
 import { EventsGateway } from '../events/events.gateway';
 
 export class CreateChannelDto {
@@ -30,38 +30,23 @@ export class UpdateChannelDto {
 export class ChannelsController {
   constructor(
     private readonly channelsService: ChannelsService,
-    private readonly authService: AuthService,
     private readonly eventsGateway: EventsGateway,
   ) {}
 
-  private extractUsername(authHeader?: string, xUserHeader?: string): string | undefined {
-    if (xUserHeader) return xUserHeader;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-      const username = this.authService.validateToken(token);
-      if (username) return username;
-    }
-    return undefined;
-  }
-
   @Get()
   async getChannels(
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-user') xUser?: string,
+    @CurrentUser() current?: string,
   ) {
-    const current = this.extractUsername(authHeader, xUser);
     return this.channelsService.getChannels(current);
   }
 
   @Post()
   async createChannel(
     @Body() dto: CreateChannelDto,
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-user') xUser?: string,
+    @CurrentUser() current?: string,
   ) {
-    const current = this.extractUsername(authHeader, xUser);
     if (!current) {
-      throw new BadRequestException('Vous devez être connecté pour créer un salon.');
+      throw new UnauthorizedException('Vous devez être connecté pour créer un salon.');
     }
     const channel = await this.channelsService.createChannel(current, dto);
     this.eventsGateway.server?.emit('channel:new', channel);
@@ -72,12 +57,10 @@ export class ChannelsController {
   async updateChannel(
     @Param('id') id: string,
     @Body() dto: UpdateChannelDto,
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-user') xUser?: string,
+    @CurrentUser() current?: string,
   ) {
-    const current = this.extractUsername(authHeader, xUser);
     if (!current) {
-      throw new BadRequestException('Vous devez être connecté.');
+      throw new UnauthorizedException('Vous devez être connecté.');
     }
     const updated = await this.channelsService.updateChannel(id, current, dto);
     this.eventsGateway.server?.emit('channel:updated', updated);
@@ -87,12 +70,10 @@ export class ChannelsController {
   @Delete(':id')
   async deleteChannel(
     @Param('id') id: string,
-    @Headers('authorization') authHeader?: string,
-    @Headers('x-user') xUser?: string,
+    @CurrentUser() current?: string,
   ) {
-    const current = this.extractUsername(authHeader, xUser);
     if (!current) {
-      throw new BadRequestException('Vous devez être connecté.');
+      throw new UnauthorizedException('Vous devez être connecté.');
     }
     await this.channelsService.deleteChannel(id, current);
     this.eventsGateway.server?.emit('channel:deleted', { id });

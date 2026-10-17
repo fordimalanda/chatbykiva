@@ -41,3 +41,7 @@ scratch/
 DOCUMENTATION.md
 
 *.webm
+*.tsbuildinfo
+
+# Fichiers envoyés par les utilisateurs
+backend/uploads/
