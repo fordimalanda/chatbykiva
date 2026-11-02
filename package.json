@@ -1,6 +1,6 @@
 {
   "name": "chatbykiva",
-  "version": "1.0.0",
+  "version": "1.7.1",
   "description": "KivaSocial - Mini-reseau social propulse par KivaDB",
   "scripts": {
     "dev:backend": "cd backend && npm run start:dev",

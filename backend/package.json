@@ -1,6 +1,6 @@
 {
   "name": "kiva-social-backend",
-  "version": "1.0.0",
+  "version": "1.7.1",
   "description": "NestJS backend powered by KivaDB for Social Network",
   "scripts": {
     "build": "nest build",
