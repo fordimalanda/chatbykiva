@@ -1,6 +1,6 @@
 # KivaSocial — Vitrine Technologique & Démonstration de KivaDB
 
-> **KivaSocial** est un projet démonstrateur complet (Proof of Concept fullstack) conçu pour mettre en valeur les capacités, la rapidité et la flexibilité de **KivaDB (v1.0.0)** — une base de données NoSQL moderne alliant stockage clé-valeur, documents JSON structurés et notifications temps réel natives.
+> **KivaSocial** est un projet démonstrateur complet (Proof of Concept fullstack) conçu pour mettre en valeur les capacités, la rapidité et la flexibilité de **KivaDB (v1.7.1)** — une base de données NoSQL moderne alliant stockage clé-valeur, documents JSON structurés et notifications temps réel natives. Le projet est aligné avec la version stable KivaDB 1.7.1 et préparé pour la future **v2.0.0** (actuellement en cours de développement).
 
 Ce projet démontre comment concevoir une application interactive moderne (réseau social avec authentification, système de suivi mutuel et messagerie instantanée) **en s'appuyant exclusivement sur KivaDB pour toute la persistance et les flux d'événements**, sans avoir besoin d'un moteur SQL lourd ni de briques additionnelles comme Redis.
 
@@ -29,7 +29,7 @@ Ce projet illustre 4 points forts majeurs de KivaDB :
 
 ## Stack Technique
 
-- **Base de Données** : KivaDB 1.0.0 (Workspace dédié `social_app`, ports 8080 et 2911)
+- **Base de Données** : KivaDB 1.7.1 (Workspace dédié `social_app`, ports 8080 [REST & WS] et 2911 [TCP], compatible v2.0.0 en cours de dév)
 - **Backend** : NestJS (TypeScript, WebSocket Gateway Socket.IO, Bcrypt)
 - **Frontend** : Next.js 15 (App Router, React 19, TypeScript)
 - **UI & Style** : TailwindCSS, Lucide Icons, Design System inspiré de ShadcnUI (Dark theme épuré)
